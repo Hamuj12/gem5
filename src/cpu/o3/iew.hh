@@ -168,6 +168,9 @@ class IEW
     /** Squashes instructions in IEW for a specific thread. */
     void squash(ThreadID tid);
 
+    /** Squashes instructions in IEW for a specific thread. */
+    void squashDueToValueMisprediction(const DynInstPtr& inst, ThreadID tid);
+
     /** Wakes all dependents of a completed instruction. */
     void wakeDependents(const DynInstPtr &inst);
 
@@ -286,6 +289,9 @@ class IEW
     /** Sorts instructions coming from rename into lists separated by thread. */
     void sortInsts();
 
+    /** Handles verification of load value predictions */
+    void verifyValuePredictions();
+
   public:
     /** Ticks IEW stage, causing Dispatch, the IQ, the LSQ, Execute, and
      * Writeback to run for one cycle.
@@ -341,6 +347,8 @@ class IEW
   private:
     /** CPU pointer. */
     CPU *cpu;
+
+    bool enableLvp;
 
     /** Records if IEW has written to the time buffer this cycle, so that the
      * CPU can deschedule itself if there is no activity.

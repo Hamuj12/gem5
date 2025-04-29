@@ -48,6 +48,7 @@
 #include "cpu/o3/dyn_inst_ptr.hh"
 #include "cpu/o3/limits.hh"
 #include "cpu/timebuf.hh"
+#include "cpu/lvp/value_pred.hh"
 
 namespace gem5
 {
@@ -206,6 +207,10 @@ class Decode
     // Interfaces to objects outside of decode.
     /** CPU interface. */
     CPU *cpu;
+
+    /** Value predictor interface. */
+    gem5::lvp::ValuePredictor *valuePredictor;
+    bool enableLvp;  // new
 
     /** Time buffer interface. */
     TimeBuffer<TimeStruct> *timeBuffer;

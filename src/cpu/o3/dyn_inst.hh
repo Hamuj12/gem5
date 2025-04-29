@@ -164,6 +164,9 @@ class DynInst : public ExecContext, public RefCounted
         RecoverInst,             /// Is a recover instruction
         BlockingInst,            /// Is a blocking instruction
         ThreadsyncWait,          /// Is a thread synchronization instruction
+        HasValuePrediction,    /// Instruction has a value prediction
+        ValuePredUsed,         /// Value prediction was used for this instruction
+        ValuePredCorrect,      /// Value prediction was correct
         SerializeBefore,         /// Needs to serialize on
                                  /// instructions ahead of it
         SerializeAfter,          /// Needs to serialize instructions behind it
@@ -189,6 +192,9 @@ class DynInst : public ExecContext, public RefCounted
         HtmFromTransaction,
         NoCapableFU,           /// Processor does not have capability to
                                /// execute the instruction
+        ValuePredictionValid,  /// Whether the value prediction is valid
+        HasSpeculativeSrcs,       /// Has sources dependent on value predictions
+        SpeculativelyExecuted,    /// Executed with speculative/predicted values
         MaxFlags
     };
 
@@ -200,6 +206,10 @@ class DynInst : public ExecContext, public RefCounted
     std::bitset<NumStatus> status;
 
   protected:
+
+    /** The predicted value for load instructions. */
+    uint64_t predictedValue;
+
     /** The result of the instruction; assumes an instruction can have many
      *  destination registers.
      */
@@ -884,6 +894,47 @@ class DynInst : public ExecContext, public RefCounted
         return status[PinnedRegsSquashDone];
     }
 
+    /** Returns whether this instruction has a value prediction. */
+    bool hasVP() const { return status[HasValuePrediction]; }
+
+    /** Sets the value prediction for this instruction. */
+    void setHasVP() { status.set(HasValuePrediction); }
+
+    /** Returns whether the value prediction was used. */
+    bool vpUsed() const { return status[ValuePredUsed]; }
+
+    /** Sets whether the value prediction was used. */
+    void setVpUsed() { status.set(ValuePredUsed); }
+
+    /** Returns whether the value prediction was correct. */
+    bool isVpCorrect() const { return status[ValuePredCorrect]; }
+
+    /** Sets whether the value prediction was correct. */
+    void setVpCorrect(bool correct) { correct ? status.set(ValuePredCorrect) : status.reset(ValuePredCorrect); }
+
+    /** Clears the value prediction status. */
+    void clearVpStatus() {
+        status.reset(HasValuePrediction);
+        status.reset(ValuePredUsed);
+        status.reset(ValuePredCorrect);
+    }
+
+    /** Returns whether the value prediction is valid. */
+    bool isVpValid() const { return instFlags[ValuePredictionValid]; }
+
+    /** Sets whether the value prediction is valid. */
+    void setVpValid(bool valid) { instFlags[ValuePredictionValid] = valid; }
+
+    /** Returns the predicted value. */
+    uint64_t getPredValue() const { return predictedValue; }
+
+    /** Sets the predicted value for this instruction. */
+    void setPredValue(uint64_t val) {
+        predictedValue = val;
+        setHasVP();
+        setVpValid(true);
+    }
+
     /** Sets dest registers' status updated after squash */
     void
     setPinnedRegsSquashDone()
@@ -1168,6 +1219,31 @@ class DynInst : public ExecContext, public RefCounted
         cpu->setReg(reg, val, threadNumber);
         setResult(reg->regClass(), val);
     }
+
+    private:
+    /** Tracks which source registers come from predicted values. */
+    std::vector<bool> speculativeSrcRegs;
+
+    public:
+        /** Set that a specific source register comes from a predicted value. */
+        void setHasSpeculativeSrc(int idx) {
+            if (speculativeSrcRegs.size() <= idx) {
+                speculativeSrcRegs.resize(idx + 1, false);
+            }
+            speculativeSrcRegs[idx] = true; 
+        }
+        
+        /** Set that this instruction has sources dependent on predictions. */
+        void setHasSpeculativeSrcs() { instFlags.set(HasSpeculativeSrcs); }
+        
+        /** Returns whether this instruction has sources dependent on predictions. */
+        bool haveSpeculativeSrcs() const { return instFlags[HasSpeculativeSrcs]; }
+        
+        /** Set that this instruction executed with predicted values. */
+        void setSpeculativelyExecuted() { instFlags.set(SpeculativelyExecuted); }
+        
+        /** Returns whether this instruction executed with predicted values. */
+        bool wasSpeculativelyExecuted() const { return instFlags[SpeculativelyExecuted]; }
 };
 
 } // namespace o3

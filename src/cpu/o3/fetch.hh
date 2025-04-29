@@ -52,6 +52,7 @@
 #include "cpu/pred/bpred_unit.hh"
 #include "cpu/timebuf.hh"
 #include "cpu/translation.hh"
+#include "cpu/lvp/value_pred.hh"
 #include "enums/SMTFetchPolicy.hh"
 #include "mem/packet.hh"
 #include "mem/port.hh"
@@ -362,6 +363,9 @@ class Fetch
 
     RequestPort &getInstPort() { return icachePort; }
 
+    /** Returns pointer to the value predictor. */
+    gem5::lvp::ValuePredictor* getValuePredictor() { return valuePredictor; }
+
   private:
     DynInstPtr buildInst(ThreadID tid, StaticInstPtr staticInst,
             StaticInstPtr curMacroop, const PCStateBase &this_pc,
@@ -414,6 +418,9 @@ class Fetch
 
     /** BPredUnit. */
     branch_prediction::BPredUnit *branchPred;
+
+    /** ValuePredictor. */
+    gem5::lvp::ValuePredictor *valuePredictor;
 
     std::unique_ptr<PCStateBase> pc[MaxThreads];
 

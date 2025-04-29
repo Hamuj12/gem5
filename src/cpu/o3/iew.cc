@@ -51,11 +51,13 @@
 #include "cpu/o3/dyn_inst.hh"
 #include "cpu/o3/fu_pool.hh"
 #include "cpu/o3/limits.hh"
+#include "cpu/lvp/value_pred.hh"
 #include "cpu/timebuf.hh"
 #include "debug/Activity.hh"
 #include "debug/Drain.hh"
 #include "debug/IEW.hh"
 #include "debug/O3PipeView.hh"
+#include "debug/ValuePredictor.hh"
 #include "params/BaseO3CPU.hh"
 
 namespace gem5
@@ -70,6 +72,7 @@ IEW::IEW(CPU *_cpu, const BaseO3CPUParams &params)
       instQueue(_cpu, this, params),
       ldstQueue(_cpu, this, params),
       fuPool(params.fuPool),
+      enableLvp(params.enable_lvp),
       commitToIEWDelay(params.commitToIEWDelay),
       renameToIEWDelay(params.renameToIEWDelay),
       issueToExecuteDelay(params.issueToExecuteDelay),
@@ -433,6 +436,43 @@ IEW::squashDueToBranch(const DynInstPtr& inst, ThreadID tid)
         wroteToTimeBuffer = true;
     }
 
+}
+
+void 
+IEW::squashDueToValueMisprediction(const DynInstPtr& inst, ThreadID tid)
+{    
+    DPRINTF(ValuePredictor, "[tid:%i] [sn:%llu] (IEW) PC %#llx.%#llx | Value misprediction "
+            "detected\n",
+            tid, inst->seqNum, inst->pcState().instAddr(),
+            inst->pcState().microPC());
+
+    // If there's no squash signal yet, or the new squash is earlier
+    if (!toCommit->squash[tid] ||
+            inst->seqNum < toCommit->squashedSeqNum[tid]) {
+        toCommit->squash[tid] = true;
+        
+        // Important: Use the instruction's sequence number 
+        // This will squash instructions after this one
+        toCommit->squashedSeqNum[tid] = inst->seqNum;
+        
+        // We're not changing the PC like in branch misprediction, 
+        // just continue from the next instruction
+        toCommit->branchTaken[tid] = false;
+        
+        // Set the PC to continue from the instruction after the 
+        // mispredicting load, since we want to keep the load itself
+        set(toCommit->pc[tid], inst->pcState());
+        inst->staticInst->advancePC(*toCommit->pc[tid]);
+        
+        // Record the mispredicting instruction
+        toCommit->mispredictInst[tid] = inst;
+        
+        // Do NOT include the mispredicting load in the squash
+        // Since it has already executed with the correct value from memory
+        toCommit->includeSquashInst[tid] = false;
+
+        wroteToTimeBuffer = true;
+    }
 }
 
 void
@@ -1102,8 +1142,9 @@ IEW::executeInsts()
     std::list<ThreadID>::iterator threads = activeThreads->begin();
     std::list<ThreadID>::iterator end = activeThreads->end();
 
+    ThreadID tid = *threads;
     while (threads != end) {
-        ThreadID tid = *threads++;
+        tid = *threads++;
         fetchRedirect[tid] = false;
     }
 
@@ -1127,6 +1168,27 @@ IEW::executeInsts()
         // Notify potential listeners that this instruction has started
         // executing
         ppExecute->notify(inst);
+
+        // This allows dependent instructions with predicted sources to execute
+        if (inst->isLoad() && inst->hasVP() && inst->vpUsed() && enableLvp) {
+            // Track this load in a way that its dependents can use the prediction
+            DPRINTF(ValuePredictor, "[tid:%i] [sn:%llu] (IEW) PC %#llx.%#llx | "
+                    "Value prediction used for load, forwarding to dependent insts\n",
+                    inst->threadNumber, inst->seqNum, inst->pcState().instAddr(),
+                    inst->pcState().microPC());
+
+            // Mark the instruction as having used the value prediction
+            inst->setSpeculativelyExecuted();
+
+            // We should mark it as executed since the prediction provides its "result"
+            if (!inst->isExecuted())
+                inst->setExecuted();
+
+            // If this instruction hasn't already been marked ready for commit,
+            // we should do that now since we're using the prediction instead of waiting
+            if (!inst->readyToCommit())
+                inst->setCanCommit();
+        }
 
         // Check if the instruction is squashed; if so then skip it
         if (inst->isSquashed()) {

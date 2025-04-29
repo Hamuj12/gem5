@@ -50,6 +50,7 @@
 #include "debug/Activity.hh"
 #include "debug/O3PipeView.hh"
 #include "debug/Rename.hh"
+#include "debug/ValuePredictor.hh"
 #include "params/BaseO3CPU.hh"
 
 namespace gem5
@@ -65,6 +66,7 @@ Rename::Rename(CPU *_cpu, const BaseO3CPUParams &params)
       commitToRenameDelay(params.commitToRenameDelay),
       renameWidth(params.renameWidth),
       numThreads(params.numThreads),
+      enableLvp(params.enable_lvp),
       stats(_cpu)
 {
     if (renameWidth > MaxWidth)
@@ -86,6 +88,8 @@ Rename::Rename(CPU *_cpu, const BaseO3CPUParams &params)
         serializeInst[tid] = nullptr;
         serializeOnNextInst[tid] = false;
     }
+
+    regDepMap.resize(numThreads);
 }
 
 std::string
@@ -1015,6 +1019,7 @@ Rename::renameSrcRegs(const DynInstPtr &inst, ThreadID tid)
     UnifiedRenameMap *map = renameMap[tid];
     unsigned num_src_regs = inst->numSrcRegs();
     auto *isa = tc->getIsaPtr();
+    bool has_predicted_sources = false;
 
     // Get the architectual register numbers from the source and
     // operands, and redirect them to the right physical register.
@@ -1060,6 +1065,12 @@ Rename::renameSrcRegs(const DynInstPtr &inst, ThreadID tid)
 
         inst->renameSrcReg(src_idx, renamed_reg);
 
+        // Look up the producer for this phys‑reg (for VP tracking)
+        DynInstPtr producer = nullptr;
+        auto pit = regDepMap[tid].find(renamed_reg);
+        if (pit != regDepMap[tid].end())
+            producer = pit->second;
+
         // See if the register is ready or not.
         if (scoreboard->getReg(renamed_reg)) {
             DPRINTF(Rename,
@@ -1069,6 +1080,22 @@ Rename::renameSrcRegs(const DynInstPtr &inst, ThreadID tid)
                     renamed_reg->className());
 
             inst->markSrcRegReady(src_idx);
+
+            // Check if this register was set by a load with value prediction
+            if (producer && producer->isLoad() && producer->hasVP() && 
+                producer->vpUsed() && enableLvp) {
+                has_predicted_sources = true;
+                
+                // Mark this instruction as having a predicted source register
+                inst->setHasSpeculativeSrc(src_idx);
+
+                DPRINTF(ValuePredictor,
+                        "[tid:%i] [sn:%llu] "
+                        "(RENAME) PC %#llx.%#llx | Source reg %d comes from load with sn:%llu with predicted value\n",
+                        tid, inst->seqNum, inst->pcState().instAddr(),
+                        inst->pcState().microPC(),
+                        renamed_reg->index(), producer->seqNum);
+            }
         } else {
             DPRINTF(Rename,
                     "[tid:%i] "
@@ -1078,6 +1105,11 @@ Rename::renameSrcRegs(const DynInstPtr &inst, ThreadID tid)
         }
 
         ++stats.lookups;
+    }
+    
+    // If this instruction has sources dependent on predicted values, mark it
+    if (has_predicted_sources) {
+        inst->setHasSpeculativeSrcs();
     }
 }
 
@@ -1101,7 +1133,15 @@ Rename::renameDestRegs(const DynInstPtr &inst, ThreadID tid)
 
         inst->flattenedDestIdx(dest_idx, flat_dest_regid);
 
-        scoreboard->unsetReg(rename_result.first);
+        // For regular instructions, we unset the register in the scoreboard
+        // But for loads with value prediction, we'll actually mark it as ready
+        if (enableLvp){
+            if (!(inst->isLoad() && inst->hasVP() && inst->isVpValid())) {
+                scoreboard->unsetReg(rename_result.first);
+            } else {
+                scoreboard->setReg(rename_result.first);
+            }
+        }
 
         DPRINTF(Rename,
                 "[tid:%i] "
@@ -1130,6 +1170,40 @@ Rename::renameDestRegs(const DynInstPtr &inst, ThreadID tid)
         inst->renameDestReg(dest_idx,
                             rename_result.first,
                             rename_result.second);
+
+        // Record producer of the destination register
+        regDepMap[tid][rename_result.first] = inst;
+
+        // If this is a load with a valid prediction, set the predicted value
+        // into the register file and mark it as ready
+        if (enableLvp && inst->isLoad() && inst->hasVP() && inst->isVpValid()) {
+            
+            // Mark that the prediction is being used
+            inst->setVpUsed();
+            
+            // Set the predicted value in the register file
+            cpu->setReg(rename_result.first, inst->getPredValue(), tid);
+            
+            // Mark the register as ready in the scoreboard
+            // This allows dependent instructions to issue immediately
+            scoreboard->setReg(rename_result.first);
+
+            DPRINTF(ValuePredictor,
+                "[tid:%i] [sn:%llu] "
+                "(RENAME) PC %#llx.%#llx | Setting predicted value 0x%lx for reg %i (%s)\n",
+                tid, inst->seqNum, inst->pcState().instAddr(),
+                inst->pcState().microPC(),
+                inst->getPredValue(),
+                rename_result.first->index(),
+                rename_result.first->className());
+
+            DPRINTF(ValuePredictor,
+                "[tid:%i] [sn:%llu] "
+                "(RENAME) PC %#llx.%#llx | vpUsed = %d\n",
+                tid, inst->seqNum, inst->pcState().instAddr(),
+                inst->pcState().microPC(),
+                inst->vpUsed());
+        }
 
         ++stats.renamedOperands;
     }

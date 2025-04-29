@@ -255,6 +255,14 @@ class CPU : public BaseCPU
     /** Terminate all threads that are ready to exit */
     void exitThreads();
 
+    /**
+    * Handle a value misprediction by flushing the pipeline.
+    * @param inst The instruction with the mispredicted value.
+    */
+    void handleValueMisprediction(const DynInstPtr &inst);
+
+    const bool enableLvp;
+
   public:
     /** Starts draining the CPU's pipeline of all instructions in
      * order to stop all memory accesses. */
@@ -373,6 +381,10 @@ class CPU : public BaseCPU
 
     /** Debug function to print all instructions on the list. */
     void dumpInsts();
+
+    gem5::lvp::ValuePredictor* getValuePredictor() {
+        return fetch.getValuePredictor();
+    }
 
   public:
 #ifndef NDEBUG
@@ -584,6 +596,8 @@ class CPU : public BaseCPU
         /** Stat for total number of cycles the CPU spends descheduled due to a
          * quiesce operation or waiting for an interrupt. */
         statistics::Scalar quiesceCycles;
+        /** Stat for  total number of mispredictions. */
+        statistics::Scalar valueMispredStats;
     } cpuStats;
 
   public:

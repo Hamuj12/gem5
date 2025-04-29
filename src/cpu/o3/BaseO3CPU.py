@@ -44,6 +44,7 @@ from m5.objects.BranchPredictor import *
 from m5.objects.FUPool import *
 from m5.params import *
 from m5.proxy import *
+from m5.objects.ValuePredictor import *
 
 
 class SMTFetchPolicy(ScopedEnum):
@@ -103,6 +104,9 @@ class BaseO3CPU(BaseCPU):
     iewToRenameDelay = Param.Cycles(
         1, "Issue/Execute/Writeback to rename delay"
     )
+    
+    enable_lvp = Param.Bool(True, "Globally enable/disable local value predictor")
+    
     commitToRenameDelay = Param.Cycles(1, "Commit to rename delay")
     decodeToRenameDelay = Param.Cycles(1, "Decode to rename delay")
     renameWidth = Param.Unsigned(8, "Rename width")
@@ -190,4 +194,7 @@ class BaseO3CPU(BaseCPU):
     branchPred = Param.BranchPredictor(
         TournamentBP(numThreads=Parent.numThreads), "Branch Predictor"
     )
+    
+    value_predictor = Param.ValuePredictor(ValuePredictor(), "Load Value Predictor")
+    
     needsTSO = Param.Bool(False, "Enable TSO Memory model")

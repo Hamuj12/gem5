@@ -1,0 +1,13 @@
+# Import the build environment
+Import('*')
+
+# Set up debug flags for this module
+DebugFlag('ValuePredictor')
+DebugFlag('LVP')
+
+# Source files
+Source('value_pred.cc')
+# Source('load_class_table.cc')
+
+# Python SimObject definitions
+SimObject('ValuePredictor.py', sim_objects=['ValuePredictor'])

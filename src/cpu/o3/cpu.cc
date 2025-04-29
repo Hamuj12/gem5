@@ -50,10 +50,12 @@
 #include "cpu/o3/thread_context.hh"
 #include "cpu/simple_thread.hh"
 #include "cpu/thread_context.hh"
+#include "cpu/lvp/value_pred.hh"
 #include "debug/Activity.hh"
 #include "debug/Drain.hh"
 #include "debug/O3CPU.hh"
 #include "debug/Quiesce.hh"
+#include "debug/ValuePredictor.hh"
 #include "enums/MemoryMode.hh"
 #include "sim/cur_tick.hh"
 #include "sim/full_system.hh"
@@ -85,6 +87,8 @@ CPU::CPU(const BaseO3CPUParams &params)
       rename(this, params),
       iew(this, params),
       commit(this, params),
+
+      enableLvp(params.enable_lvp),
 
       regFile(params.numPhysIntRegs,
               params.numPhysFloatRegs,
@@ -1475,6 +1479,18 @@ CPU::htmSendAbortSignal(ThreadID tid, uint64_t htm_uid,
     if (!iew.ldstQueue.getDataPort().sendTimingReq(abort_pkt)) {
         panic("HTM abort signal was not sent to the memory subsystem.");
     }
+}
+
+void
+CPU::handleValueMisprediction(const DynInstPtr &inst) {
+    // Similar to branch misprediction handling
+    ThreadID tid = inst->threadNumber;
+
+    // Call our specialized squash function
+    iew.squashDueToValueMisprediction(inst, tid);
+
+    // Update stats
+    cpuStats.valueMispredStats++;
 }
 
 } // namespace o3

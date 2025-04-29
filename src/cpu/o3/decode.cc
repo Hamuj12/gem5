@@ -45,9 +45,12 @@
 #include "cpu/inst_seq.hh"
 #include "cpu/o3/dyn_inst.hh"
 #include "cpu/o3/limits.hh"
+#include "cpu/static_inst.hh"
 #include "debug/Activity.hh"
 #include "debug/Decode.hh"
 #include "debug/O3PipeView.hh"
+#include "debug/ValuePredictor.hh"
+#include "debug/Disassembly.hh"
 #include "params/BaseO3CPU.hh"
 #include "sim/full_system.hh"
 
@@ -63,6 +66,8 @@ namespace o3
 
 Decode::Decode(CPU *_cpu, const BaseO3CPUParams &params)
     : cpu(_cpu),
+      valuePredictor(_cpu->getValuePredictor()),
+      enableLvp(params.enable_lvp),
       renameToDecodeDelay(params.renameToDecodeDelay),
       iewToDecodeDelay(params.iewToDecodeDelay),
       commitToDecodeDelay(params.commitToDecodeDelay),
@@ -644,6 +649,13 @@ Decode::decodeInsts(ThreadID tid)
         &insts_to_decode = decodeStatus[tid] == Unblocking ?
         skidBuffer[tid] : insts[tid];
 
+    static bool headerPrinted = false;
+    if (!headerPrinted) {
+        DPRINTF(Disassembly, "lvp_test.x86:     file format elf64-x86-64\n\n");
+        DPRINTF(Disassembly, "Disassembly of section .text:\n\n");
+        headerPrinted = true;
+    }
+
     DPRINTF(Decode, "[tid:%i] Sending instruction to rename.\n",tid);
 
     while (insts_available > 0 && toRenameIndex < decodeWidth) {
@@ -652,6 +664,22 @@ Decode::decodeInsts(ThreadID tid)
         DynInstPtr inst = std::move(insts_to_decode.front());
 
         insts_to_decode.pop();
+
+        // Simple output format
+        if (inst->isFirstMicroop()) {
+            // Print macro instruction header
+            int pcAddr = inst->pcState().instAddr();
+            std::string disassembly = inst->macroop->disassemble(inst->pcState().instAddr());
+            DPRINTF(Disassembly, "%08x:\t%s\n", pcAddr, disassembly.c_str());
+        }
+        
+        if (inst->isMicroop()) {
+            // Print each microop with its address and microPC
+            int pcAddr = inst->pcState().instAddr();
+            int microPC = inst->pcState().microPC();
+            std::string disassembly = inst->staticInst->disassemble(pcAddr);
+            DPRINTF(Disassembly, "  %08x.%03d:\t%s\n", pcAddr, microPC, disassembly.c_str());
+        }
 
         DPRINTF(Decode, "[tid:%i] Processing instruction [sn:%lli] with "
                 "PC %s\n", tid, inst->seqNum, inst->pcState());
@@ -674,6 +702,36 @@ Decode::decodeInsts(ThreadID tid)
         // too much for function correctness.
         if (inst->numSrcRegs() == 0) {
             inst->setCanIssue();
+        }
+
+        // Check if the instruction is a load and make value prediction
+        if (enableLvp && inst->isLoad()) {
+            bool valid = false;
+
+            // print the original x86 macro-instruction, not the uop
+            if (inst->macroop) {
+                DPRINTF(ValuePredictor,
+                        "[tid:%i] [sn:%llu] (DECODE) PC %#llx.%#llx | instruction %s\n",
+                        tid, inst->seqNum, inst->pcState().instAddr(),
+                        inst->pcState().microPC(),
+                        inst->macroop->disassemble(inst->pcState().instAddr()));
+            }
+
+            // Get prediction from the value predictor
+            uint64_t predValue = valuePredictor->predictValue(
+                inst->pcState().instAddr(),
+                inst->pcState().microPC(),
+                inst->seqNum, 
+                valid);
+            
+            if (valid) {
+                // Store the predicted value in the instruction
+                inst->setPredValue(predValue);
+                DPRINTF(ValuePredictor, "[tid:%i] [sn:%llu] (DECODE) PC %#llx.%#llx | predicted value 0x%x\n",
+                        tid, inst->seqNum, inst->pcState().instAddr(), inst->pcState().microPC(), predValue);
+                DPRINTF(ValuePredictor, "[tid:%i] [sn:%llu] (DECODE) PC %#llx.%#llx | predicted value hasVP %d and isVpValid %d\n",
+                        tid, inst->seqNum, inst->pcState().instAddr(), inst->pcState().microPC(), inst->hasVP(), inst->isVpValid());
+            } 
         }
 
         // This current instruction is valid, so add it into the decode

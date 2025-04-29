@@ -52,7 +52,9 @@
 #include "debug/IEW.hh"
 #include "debug/LSQUnit.hh"
 #include "debug/O3PipeView.hh"
+#include "debug/ValuePredictor.hh"
 #include "mem/packet.hh"
+#include "mem/packet_access.hh"
 #include "mem/request.hh"
 
 namespace gem5
@@ -106,6 +108,7 @@ LSQUnit::completeDataAccess(PacketPtr pkt)
 {
     LSQRequest *request = dynamic_cast<LSQRequest *>(pkt->senderState);
     DynInstPtr inst = request->instruction();
+    ThreadID tid = inst->threadNumber;
 
     // hardware transactional memory
     // sanity check
@@ -186,6 +189,43 @@ LSQUnit::completeDataAccess(PacketPtr pkt)
             // atomics), so it can complete without writing back
             completeStore(request->instruction()->sqIt);
         }
+
+        // Now check if this load had a value prediction and handle misprediction
+        if (inst->isLoad() && inst->hasVP() && inst->vpUsed() && cpu->enableLvp) {
+            // If the prediction was incorrect, trigger the recovery mechanism
+            if (!inst->isVpCorrect()) {
+                // This is the central place to handle mispredictions
+                handleValueMisprediction(inst);
+            } else {                        
+                // If this load has been classified as constant (high confidence prediction)
+                // and the prediction was correct, update the CVU
+                if (inst->isVpCorrect() && 
+                    cpu->getValuePredictor()->getLCTState(inst->pcState().instAddr(), inst->pcState().microPC()) ==
+                    gem5::lvp::ValuePredictor::LCTState::CONSTANT) {
+                    
+                    // Get the actual value from memory
+                    uint64_t actual_value = 0;
+                    switch (pkt->getSize()) {
+                        case 8: actual_value = pkt->getLE<uint64_t>(); break;
+                        case 4: actual_value = pkt->getLE<uint32_t>(); break;
+                        case 2: actual_value = pkt->getLE<uint16_t>(); break;
+                        case 1: actual_value = pkt->getLE<uint8_t>(); break;
+                        default: 
+                        const uint8_t *bytes = pkt->getPtr<uint8_t>();
+                        for (int i = 0; i < pkt->getSize() && i < 8; ++i)
+                            actual_value |= uint64_t(bytes[i]) << (i * 8);
+                    }
+                    
+                    // Add this address to the CVU
+                    cpu->getValuePredictor()->updateCVU(
+                        inst->effAddr, inst->pcState().microPC(), actual_value);
+
+                    DPRINTF(ValuePredictor, "[tid:%i] [sn:%llu] (LSQ_UNIT) PC %#llx.%#llx | Added constant value 0x%lx at address %#x to CVU\n",
+                            tid, inst->seqNum, inst->pcState().instAddr(),
+                            inst->pcState().microPC(), actual_value, inst->effAddr);
+                }
+            }
+        }
     }
 }
 
@@ -204,6 +244,8 @@ LSQUnit::init(CPU *cpu_ptr, IEW *iew_ptr, const BaseO3CPUParams &params,
         LSQ *lsq_ptr, unsigned id)
 {
     lsqID = id;
+
+    enableLvp = params.enable_lvp;
 
     cpu = cpu_ptr;
     iewStage = iew_ptr;
@@ -270,7 +312,10 @@ LSQUnit::LSQUnitStats::LSQUnitStats(statistics::Group *parent)
                "Number of times an access to memory failed due to the cache "
                "being blocked"),
       ADD_STAT(loadToUse, "Distribution of cycle latency between the "
-                "first time a load is issued and its completion")
+                "first time a load is issued and its completion"),
+
+      ADD_STAT(valuePredMispredictions, statistics::units::Count::get(),
+      "Number of value prediction mispredictions")   
 {
     loadToUse
         .init(0, 299, 10)
@@ -592,10 +637,41 @@ LSQUnit::executeLoad(const DynInstPtr &inst)
     // Execute a specific load.
     Fault load_fault = NoFault;
 
+    ThreadID tid = inst->threadNumber;
+
     DPRINTF(LSQUnit, "Executing load PC %s, [sn:%lli]\n",
             inst->pcState(), inst->seqNum);
 
     assert(!inst->isSquashed());
+
+    // Check if this address is in the CVU
+    uint64_t cvu_value;
+    Addr loadPC;
+    if (cpu->getValuePredictor()->checkCVU(inst->effAddr, cvu_value, loadPC) && cpu->enableLvp) {
+        // We have a CVU hit, can use the value directly without cache access
+        DPRINTF(ValuePredictor, "[tid:%i] [sn:%llu] (LSQ_UNIT) PC %#llx.%#llx | "
+                "CVU hit for address %#x, value=0x%lx\n",
+                tid, inst->seqNum, inst->pcState().instAddr(),
+                inst->pcState().microPC(), inst->effAddr, cvu_value);
+
+        // Set the data directly
+        // inst->setMemData(reinterpret_cast<uint8_t*>(&cvu_value), sizeof(cvu_value));
+        inst->memData = new uint8_t[sizeof(cvu_value)];
+        memcpy(inst->memData, &cvu_value, sizeof(cvu_value));
+        
+        // Mark the load as executed and complete it without memory access
+        inst->setExecuted();
+        inst->setResultReady();
+
+        // Send to commit
+        iewStage->instToCommit(inst);
+        iewStage->activityThisCycle();
+        
+        // Increment CVU hit statistics
+        ++stats.cvuHits;
+        
+        return NoFault;
+    }
 
     load_fault = inst->initiateAcc();
 
@@ -656,6 +732,8 @@ LSQUnit::executeLoad(const DynInstPtr &inst)
 Fault
 LSQUnit::executeStore(const DynInstPtr &store_inst)
 {
+
+    ThreadID tid = store_inst->threadNumber;
     // Make sure that a store exists.
     assert(storeQueue.size() != 0);
 
@@ -702,6 +780,25 @@ LSQUnit::executeStore(const DynInstPtr &store_inst)
     }
 
     assert(store_fault == NoFault);
+
+    // Invalidate any matching CVU entries when a store happens
+    if (store_inst->effAddrValid() && cpu->enableLvp) {
+        auto vp = cpu->getValuePredictor();
+        Addr storeAddr = store_inst->effAddr;
+        uint64_t constVal;
+        Addr loadPC = store_inst->pcState().instAddr();
+
+        // only if there *is* a CVU entry do we do anything
+        if (vp->checkCVU(storeAddr, constVal, loadPC)) {
+            vp->invalidateCVU(storeAddr);
+            vp->setLCTState(loadPC, store_inst->pcState().microPC(), lvp::ValuePredictor::LCTState::PREDICT);
+
+            DPRINTF(ValuePredictor, "[tid:%i] [sn:%llu] (LSQ_UNIT) PC %#llx.%#llx | "
+                    "Store to address %#x invalidated CVU entry, demoting LCTEntry to PREDICT\n",
+                    tid, store_inst->seqNum, store_inst->pcState().instAddr(),
+                    store_inst->pcState().microPC(), storeAddr);
+        }
+    }
 
     if (store_inst->isStoreConditional() || store_inst->isAtomic()) {
         // Store conditionals and Atomics need to set themselves as able to
@@ -1322,6 +1419,21 @@ LSQUnit::read(LSQRequest *request, ssize_t load_idx)
     load_entry.setRequest(request);
     assert(load_inst);
 
+    if (load_inst->isExecuted() && cpu->enableLvp) {
+        DPRINTF(ValuePredictor, "[tid:%i] [sn:%llu] (LSQ_UNIT) PC %#llx.%#llx | "
+                "Skipping memory access for already-executed load\n",
+                load_inst->threadNumber, load_inst->seqNum,
+                load_inst->pcState().instAddr(),
+                load_inst->pcState().microPC());
+
+        iewStage->instToCommit(load_inst);
+        iewStage->activityThisCycle();
+        // clear out our saved request so we don't re-try it later
+        load_entry.setRequest(nullptr);
+        request->discard();
+        return NoFault;
+    }
+
     assert(!load_inst->isExecuted());
 
     // Make sure this isn't a strictly ordered load
@@ -1645,6 +1757,23 @@ LSQUnit::getStoreHeadSeqNum()
         return storeQueue.front().instruction()->seqNum;
     else
         return 0;
+}
+
+void
+LSQUnit::handleValueMisprediction(const DynInstPtr &inst)
+{
+    // Update statistics
+    stats.valuePredMispredictions++;
+
+    // Since we're using pipeline flush approach, we need to:
+    // 1. Signal the CPU to flush the pipeline from this instruction
+    // 2. Redirect fetch to the instruction after the mispredicting load
+
+    // Get the thread context
+    ThreadID tid = inst->threadNumber;
+    // Tell the CPU to handle the misprediction - use the existing pipeline flush mechanism
+    
+    cpu->handleValueMisprediction(inst);
 }
 
 } // namespace o3

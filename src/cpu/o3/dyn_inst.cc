@@ -70,6 +70,13 @@ DynInst::DynInst(const Arrays &arrays, const StaticInstPtr &static_inst,
     instFlags[Predicate] = true;
     instFlags[MemAccPredicate] = true;
 
+    // Initialize value prediction status
+    status.reset(HasValuePrediction);
+    status.reset(ValuePredUsed);
+    status.reset(ValuePredCorrect);
+    instFlags[ValuePredictionValid] = false;
+    predictedValue = 0;
+
 #ifndef NDEBUG
     ++cpu->instcount;
 

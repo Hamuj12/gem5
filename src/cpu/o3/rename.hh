@@ -54,6 +54,7 @@
 #include "cpu/o3/limits.hh"
 #include "cpu/timebuf.hh"
 #include "sim/probe/probe.hh"
+#include <unordered_map>
 
 namespace gem5
 {
@@ -83,6 +84,8 @@ class Rename
     // using a deque instead of a queue. (Most other stages use a
     // queue)
     typedef std::deque<DynInstPtr> InstQueue;
+    std::vector<std::unordered_map<PhysRegIdPtr, DynInstPtr>> regDepMap;
+
 
   public:
     /** Overall rename status. Used to determine if the CPU can
@@ -322,6 +325,8 @@ class Rename
 
     /** Pointer to CPU. */
     CPU *cpu;
+
+    bool enableLvp;
 
     /** Pointer to main time buffer used for backwards communication. */
     TimeBuffer<TimeStruct> *timeBuffer;

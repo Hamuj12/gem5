@@ -393,6 +393,10 @@ class LSQUnit
     void schedule(Event& ev, Tick when);
 
     BaseMMU *getMMUPtr();
+    
+    CPU *getCPU() const { return cpu; }
+
+    bool enableLvp;
 
   private:
     /** Pointer to the CPU. */
@@ -538,6 +542,12 @@ class LSQUnit
         /** Distribution of cycle latency between the first time a load
          * is issued and its completion */
         statistics::Distribution loadToUse;
+
+        /** Number of value prediction mispredictions. */
+        statistics::Scalar valuePredMispredictions;
+
+        /** Number of CVU hits */
+        statistics::Scalar cvuHits;
     } stats;
 
   public:
@@ -563,6 +573,8 @@ class LSQUnit
   public:
     typedef typename CircularQueue<LQEntry>::iterator LQIterator;
     typedef typename CircularQueue<SQEntry>::iterator SQIterator;
+
+    void handleValueMisprediction(const DynInstPtr &inst);
 };
 
 } // namespace o3

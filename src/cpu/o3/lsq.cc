@@ -56,7 +56,9 @@
 #include "debug/HtmCpu.hh"
 #include "debug/LSQ.hh"
 #include "debug/Writeback.hh"
+#include "debug/ValuePredictor.hh"
 #include "params/BaseO3CPU.hh"
+#include "mem/packet_access.hh"
 
 namespace gem5
 {
@@ -1191,6 +1193,60 @@ LSQ::SingleDataRequest::recvTimingResp(PacketPtr pkt)
     assert(_numOutstandingPackets == 1);
     flags.set(Flag::Complete);
     assert(pkt == _packets.front());
+
+    // Always extract the actual value for loads
+    if (isLoad() && lsqUnit()->enableLvp) {
+        uint64_t actualValue = 0;        
+        // Extract the actual value based on the request size
+        switch (pkt->getSize()) {
+            case 8:
+                actualValue = pkt->getLE<uint64_t>();
+                break;
+            case 4:
+                actualValue = pkt->getLE<uint32_t>();
+                break;
+            case 2:
+                actualValue = pkt->getLE<uint16_t>();
+                break;
+            case 1:
+                actualValue = pkt->getLE<uint8_t>();
+                break;
+            default:
+                // For unusual sizes
+                // print that the size is not 1,2,4,8
+                const uint8_t* data = pkt->getConstPtr<uint8_t>();
+                actualValue = 0;
+                for (int i = 0; i < pkt->getSize() && i < 8; i++) {
+                    actualValue |= (static_cast<uint64_t>(data[i]) << (i * 8));
+                }
+        }
+        
+        // If there was a prediction, check if it was correct
+        bool correct = false;
+        DPRINTF(ValuePredictor, "[sn:%llu] (LSQ SingleDataRequest) PC %#llx.%#llx | HasVP: %s, VPUsed: %s\n",
+                _inst->seqNum, _inst->pcState().instAddr(), _inst->pcState().microPC(),
+                _inst->hasVP() ? "true" : "false", _inst->vpUsed() ? "true" : "false");
+        if (_inst->hasVP() && _inst->vpUsed()) {
+            correct = (_inst->getPredValue() == actualValue);
+            _inst->setVpCorrect(correct);
+
+            DPRINTF(ValuePredictor, "[sn:%llu] (LSQ) PC %#llx.%#llx | SingleDataRequest: value prediction is %s\n",
+                _inst->seqNum, _inst->pcState().instAddr(), _inst->pcState().microPC(), correct ? "correct" : "incorrect");
+        }
+        
+        // Always update the value predictor with the actual value
+        CPU *cpu = _port.getCPU();
+        if (cpu->getValuePredictor()) {
+            cpu->getValuePredictor()->update(
+                _inst->pcState().instAddr(),
+                _inst->pcState().microPC(),
+                _inst->seqNum,
+                actualValue,
+                _inst->hasVP() && _inst->vpUsed() ? correct : false
+            );
+        }
+    }
+
     _port.completeDataAccess(pkt);
     _hasStaleTranslation = false;
     return true;
@@ -1206,6 +1262,63 @@ LSQ::SplitDataRequest::recvTimingResp(PacketPtr pkt)
     numReceivedPackets++;
     if (numReceivedPackets == _packets.size()) {
         flags.set(Flag::Complete);
+
+        // For loads, we'll always update the value predictor with the actual value
+        if (isLoad() && lsqUnit()->enableLvp) {
+            // Create an assembled response packet for the complete data
+            PacketPtr resp = Packet::createRead(_mainReq);
+            resp->dataStatic(_inst->memData);
+            
+            uint64_t actualValue = 0;            
+            // Extract the actual value from the assembled response
+            switch (resp->getSize()) {
+                case 8:
+                    actualValue = resp->getLE<uint64_t>();
+                    break;
+                case 4:
+                    actualValue = resp->getLE<uint32_t>();
+                    break;
+                case 2:
+                    actualValue = resp->getLE<uint16_t>();
+                    break;
+                case 1:
+                    actualValue = resp->getLE<uint8_t>();
+                    break;
+                default:
+                    // Handle unusual sizes
+                    auto ptr = resp->getPtr<uint8_t>();
+                    for (int i = 0; i < resp->getSize() && i < 8; ++i)
+                        actualValue |= (static_cast<uint64_t>(ptr[i]) << (i * 8));
+            }
+            
+            // Check if there was a prediction and if so, validate it
+            bool correct = false;
+            DPRINTF(ValuePredictor, "[sn:%llu] (LSQ SplitDataRequest) PC %#llx.%#llx | HasVP: %s, VPUsed: %s\n",
+                _inst->seqNum, _inst->pcState().instAddr(), _inst->pcState().microPC(),
+                _inst->hasVP() ? "true" : "false", _inst->vpUsed() ? "true" : "false");
+            if (_inst->hasVP() && _inst->vpUsed()) {
+                correct = (_inst->getPredValue() == actualValue);
+                _inst->setVpCorrect(correct);
+
+                DPRINTF(ValuePredictor, "[sn:%llu] (LSQ) PC %#llx.%#llx | SplitDataRequest: value prediction is %s\n",
+                    _inst->seqNum, _inst->pcState().instAddr(), _inst->pcState().microPC(), correct ? "correct" : "incorrect");
+            }
+            
+            // Always update the value predictor, even for first-time loads
+            CPU *cpu = _port.getCPU();
+            if (cpu->getValuePredictor()) {
+                cpu->getValuePredictor()->update(
+                    _inst->pcState().instAddr(),
+                    _inst->pcState().microPC(),
+                    _inst->seqNum,
+                    actualValue,
+                    _inst->hasVP() && _inst->vpUsed() ? correct : false
+                );
+            }
+            
+            delete resp;
+        }
+
         /* Assemble packets. */
         PacketPtr resp = isLoad()
             ? Packet::createRead(_mainReq)
