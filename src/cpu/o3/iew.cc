@@ -1170,7 +1170,7 @@ IEW::executeInsts()
         ppExecute->notify(inst);
 
         // This allows dependent instructions with predicted sources to execute
-        if (inst->isLoad() && inst->hasVP() && inst->vpUsed() && enableLvp) {
+        if (inst->isLoad() && inst->isVPValid() && inst->isVPUsed() && enableLvp) {
             // Track this load in a way that its dependents can use the prediction
             DPRINTF(ValuePredictor, "[tid:%i] [sn:%llu] (IEW) PC %#llx.%#llx | "
                     "Value prediction used for load, forwarding to dependent insts\n",

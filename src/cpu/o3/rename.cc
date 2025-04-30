@@ -47,6 +47,7 @@
 #include "cpu/o3/dyn_inst.hh"
 #include "cpu/o3/limits.hh"
 #include "cpu/reg_class.hh"
+#include "cpu/lvp/value_pred.hh"
 #include "debug/Activity.hh"
 #include "debug/O3PipeView.hh"
 #include "debug/Rename.hh"
@@ -1080,10 +1081,11 @@ Rename::renameSrcRegs(const DynInstPtr &inst, ThreadID tid)
                     renamed_reg->className());
 
             inst->markSrcRegReady(src_idx);
-
+            
+            // bool shouldPredict = cpu->getValuePredictor()->getLCTState(producer->pcState().instAddr(), producer->pcState().microPC()) >= lvp::ValuePredictor::LCTState::PREDICT;
             // Check if this register was set by a load with value prediction
-            if (producer && producer->isLoad() && producer->hasVP() && 
-                producer->vpUsed() && enableLvp) {
+            if (producer && producer->isLoad() && producer->isVPValid() && 
+                producer->isVPUsed() && enableLvp) {
                 has_predicted_sources = true;
                 
                 // Mark this instruction as having a predicted source register
@@ -1137,7 +1139,8 @@ Rename::renameDestRegs(const DynInstPtr &inst, ThreadID tid)
         // But for loads with value prediction, we'll actually mark it as ready
         scoreboard->unsetReg(rename_result.first);
 
-        if (enableLvp && inst->isLoad() && inst->hasVP() && inst->isVpValid()) {
+        bool shouldPredict = cpu->getValuePredictor()->getLCTState(inst->pcState().instAddr(), inst->pcState().microPC()) >= gem5::lvp::ValuePredictor::LCTState::PREDICT;
+        if (enableLvp && inst->isLoad() && inst->isVPValid() && shouldPredict) {
             scoreboard->setReg(rename_result.first);
         }
 
@@ -1174,10 +1177,10 @@ Rename::renameDestRegs(const DynInstPtr &inst, ThreadID tid)
 
         // If this is a load with a valid prediction, set the predicted value
         // into the register file and mark it as ready
-        if (enableLvp && inst->isLoad() && inst->hasVP() && inst->isVpValid()) {
+        if (enableLvp && inst->isLoad() && inst->isVPValid() && shouldPredict) {
             
             // Mark that the prediction is being used
-            inst->setVpUsed();
+            inst->addVPState(DynInst::VP_Used);
             
             // Set the predicted value in the register file
             cpu->setReg(rename_result.first, inst->getPredValue(), tid);
@@ -1197,10 +1200,10 @@ Rename::renameDestRegs(const DynInstPtr &inst, ThreadID tid)
 
             DPRINTF(ValuePredictor,
                 "[tid:%i] [sn:%llu] "
-                "(RENAME) PC %#llx.%#llx | vpUsed = %d\n",
+                "(RENAME) PC %#llx.%#llx | VP_Valid = %d VP_Used = %d VP_Correct = %d\n",
                 tid, inst->seqNum, inst->pcState().instAddr(),
                 inst->pcState().microPC(),
-                inst->vpUsed());
+                inst->isVPValid(), inst->isVPUsed(), inst->isVPCorrect());
         }
 
         ++stats.renamedOperands;

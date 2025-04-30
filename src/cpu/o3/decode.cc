@@ -725,10 +725,12 @@ Decode::decodeInsts(ThreadID tid)
             if (valid) {
                 // Store the predicted value in the instruction
                 inst->setPredValue(predValue);
+                inst->addVPState(DynInst::VP_Valid);
                 DPRINTF(ValuePredictor, "[tid:%i] [sn:%llu] (DECODE) PC %#llx.%#llx | predicted value 0x%x\n",
                         tid, inst->seqNum, inst->pcState().instAddr(), inst->pcState().microPC(), predValue);
-                DPRINTF(ValuePredictor, "[tid:%i] [sn:%llu] (DECODE) PC %#llx.%#llx | predicted value hasVP %d and isVpValid %d\n",
-                        tid, inst->seqNum, inst->pcState().instAddr(), inst->pcState().microPC(), inst->hasVP(), inst->isVpValid());
+                DPRINTF(ValuePredictor, "[tid:%i] [sn:%llu] (DECODE) PC %#llx.%#llx | VP_Valid = %d VP_Used = %d VP_Correct = %d\n",
+                        tid, inst->seqNum, inst->pcState().instAddr(), inst->pcState().microPC(),
+                        inst->isVPValid(), inst->isVPUsed(), inst->isVPCorrect());
             } 
         }
 

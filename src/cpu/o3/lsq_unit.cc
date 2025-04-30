@@ -191,15 +191,15 @@ LSQUnit::completeDataAccess(PacketPtr pkt)
         }
 
         // Now check if this load had a value prediction and handle misprediction
-        if (inst->isLoad() && inst->hasVP() && inst->vpUsed() && cpu->enableLvp) {
+        if (inst->isLoad() && inst->isVPValid() && inst->isVPUsed() && cpu->enableLvp) {
             // If the prediction was incorrect, trigger the recovery mechanism
-            if (!inst->isVpCorrect()) {
+            if (!inst->isVPCorrect()) {
                 // This is the central place to handle mispredictions
                 handleValueMisprediction(inst);
             } else {                        
                 // If this load has been classified as constant (high confidence prediction)
                 // and the prediction was correct, update the CVU
-                if (inst->isVpCorrect() && 
+                if (inst->isVPCorrect() && 
                     cpu->getValuePredictor()->getLCTState(inst->pcState().instAddr(), inst->pcState().microPC()) ==
                     gem5::lvp::ValuePredictor::LCTState::CONSTANT) {
                     

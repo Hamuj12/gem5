@@ -74,9 +74,19 @@ namespace o3
 
 class DynInst : public ExecContext, public RefCounted
 {
+  public:
+    enum VPState : uint8_t {
+        VP_None    = 0,
+        VP_Valid   = 1 << 0,  // we have a predictedValue ready
+        VP_Used    = 1 << 1,  // we forwarded it into the pipeline
+        VP_Correct = 1 << 2,  // we later learned it was correct
+    };
+
   private:
     DynInst(const StaticInstPtr &staticInst, const StaticInstPtr &macroop,
             InstSeqNum seq_num, CPU *cpu);
+
+  uint8_t vpState{VP_None};
 
   public:
     // The list of instructions iterator type.
@@ -164,9 +174,6 @@ class DynInst : public ExecContext, public RefCounted
         RecoverInst,             /// Is a recover instruction
         BlockingInst,            /// Is a blocking instruction
         ThreadsyncWait,          /// Is a thread synchronization instruction
-        HasValuePrediction,    /// Instruction has a value prediction
-        ValuePredUsed,         /// Value prediction was used for this instruction
-        ValuePredCorrect,      /// Value prediction was correct
         SerializeBefore,         /// Needs to serialize on
                                  /// instructions ahead of it
         SerializeAfter,          /// Needs to serialize instructions behind it
@@ -192,7 +199,6 @@ class DynInst : public ExecContext, public RefCounted
         HtmFromTransaction,
         NoCapableFU,           /// Processor does not have capability to
                                /// execute the instruction
-        ValuePredictionValid,  /// Whether the value prediction is valid
         HasSpeculativeSrcs,       /// Has sources dependent on value predictions
         SpeculativelyExecuted,    /// Executed with speculative/predicted values
         MaxFlags
@@ -894,36 +900,12 @@ class DynInst : public ExecContext, public RefCounted
         return status[PinnedRegsSquashDone];
     }
 
-    /** Returns whether this instruction has a value prediction. */
-    bool hasVP() const { return status[HasValuePrediction]; }
-
-    /** Sets the value prediction for this instruction. */
-    void setHasVP() { status.set(HasValuePrediction); }
-
-    /** Returns whether the value prediction was used. */
-    bool vpUsed() const { return status[ValuePredUsed]; }
-
-    /** Sets whether the value prediction was used. */
-    void setVpUsed() { status.set(ValuePredUsed); }
-
-    /** Returns whether the value prediction was correct. */
-    bool isVpCorrect() const { return status[ValuePredCorrect]; }
-
-    /** Sets whether the value prediction was correct. */
-    void setVpCorrect(bool correct) { correct ? status.set(ValuePredCorrect) : status.reset(ValuePredCorrect); }
-
-    /** Clears the value prediction status. */
-    void clearVpStatus() {
-        status.reset(HasValuePrediction);
-        status.reset(ValuePredUsed);
-        status.reset(ValuePredCorrect);
-    }
-
-    /** Returns whether the value prediction is valid. */
-    bool isVpValid() const { return instFlags[ValuePredictionValid]; }
-
-    /** Sets whether the value prediction is valid. */
-    void setVpValid(bool valid) { instFlags[ValuePredictionValid] = valid; }
+    bool isVPValid() const { return vpState & VP_Valid; }
+    bool isVPUsed() const { return vpState & VP_Used; }
+    bool isVPCorrect() const { return vpState & VP_Correct; }
+    void addVPState(uint8_t state) { vpState |= state; }
+    void clearVPState() { vpState = VP_None; }
+    uint8_t getVPState() const { return vpState; }
 
     /** Returns the predicted value. */
     uint64_t getPredValue() const { return predictedValue; }
@@ -931,8 +913,6 @@ class DynInst : public ExecContext, public RefCounted
     /** Sets the predicted value for this instruction. */
     void setPredValue(uint64_t val) {
         predictedValue = val;
-        setHasVP();
-        setVpValid(true);
     }
 
     /** Sets dest registers' status updated after squash */

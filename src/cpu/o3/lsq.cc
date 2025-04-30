@@ -1193,8 +1193,7 @@ LSQ::SingleDataRequest::recvTimingResp(PacketPtr pkt)
     assert(_numOutstandingPackets == 1);
     flags.set(Flag::Complete);
     assert(pkt == _packets.front());
-    DPRINTF(ValuePredictor, "[sn:%llu] (LSQ SingleDataRequest) PC %#llx.%#llx | In single data request\n",
-        _inst->seqNum, _inst->pcState().instAddr(), _inst->pcState().microPC());
+
     // Always extract the actual value for loads
     if (isLoad() && lsqUnit()->enableLvp) {
         uint64_t actualValue = 0;        
@@ -1224,9 +1223,6 @@ LSQ::SingleDataRequest::recvTimingResp(PacketPtr pkt)
         
             // Check if there was a prediction and if so, validate it
             bool correct = false;
-            DPRINTF(ValuePredictor, "[sn:%llu] (LSQ SplitDataRequest) PC %#llx.%#llx | HasVP: %d | VPUsed: %d\n",
-                _inst->seqNum, _inst->pcState().instAddr(), _inst->pcState().microPC(),
-                _inst->hasVP(), _inst->vpUsed());
             // if (_inst->hasVP() && _inst->vpUsed()) {
                 // correct = (_inst->getPredValue() == actualValue);
                 // if(_inst->getPredValue() == NULL) {
@@ -1253,9 +1249,15 @@ LSQ::SingleDataRequest::recvTimingResp(PacketPtr pkt)
                     // _inst->hasVP() && _inst->vpUsed() ? correct : false
                     // correct
                 );
-            }
+            } 
 
-            _inst->setVpCorrect(correct);
+            if (correct) {
+                _inst->addVPState(DynInst::VP_Correct);
+            } 
+
+            DPRINTF(ValuePredictor, "[sn:%llu] (LSQ SingleDataRequest) PC %#llx.%#llx | VP_Valid = %d VP_Used = %d VP_Correct = %d Correct = %d\n",
+                _inst->seqNum, _inst->pcState().instAddr(), _inst->pcState().microPC(),
+                _inst->isVPValid(), _inst->isVPUsed(), _inst->isVPCorrect(), correct);
     }
 
     _port.completeDataAccess(pkt);
@@ -1271,8 +1273,7 @@ LSQ::SplitDataRequest::recvTimingResp(PacketPtr pkt)
         pktIdx++;
     assert(pktIdx < _packets.size());
     numReceivedPackets++;
-    DPRINTF(ValuePredictor, "[sn:%llu] (LSQ SplitDataRequest) PC %#llx.%#llx | In single data request\n",
-        _inst->seqNum, _inst->pcState().instAddr(), _inst->pcState().microPC());
+
     if (numReceivedPackets == _packets.size()) {
         flags.set(Flag::Complete);
 
@@ -1306,9 +1307,9 @@ LSQ::SplitDataRequest::recvTimingResp(PacketPtr pkt)
             
             // Check if there was a prediction and if so, validate it
             bool correct = false;
-            DPRINTF(ValuePredictor, "[sn:%llu] (LSQ SplitDataRequest) PC %#llx.%#llx | HasVP: %d, VPUsed: %d\n",
+            DPRINTF(ValuePredictor, "[sn:%llu] (LSQ SplitDataRequest) PC %#llx.%#llx | VP_Valid = %d VP_Used = %d VP_Correct = %d Correct = %d\n",
                 _inst->seqNum, _inst->pcState().instAddr(), _inst->pcState().microPC(),
-                _inst->hasVP(), _inst->vpUsed());
+                _inst->isVPValid(), _inst->isVPUsed(), _inst->isVPCorrect(), correct);
             // if (_inst->hasVP() && _inst->vpUsed()) {
                 // correct = (_inst->getPredValue() == actualValue);
                 // if(_inst->getPredValue() == NULL) {
@@ -1338,7 +1339,13 @@ LSQ::SplitDataRequest::recvTimingResp(PacketPtr pkt)
                 );
             }
 
-            _inst->setVpCorrect(correct);
+            if (correct) {
+                _inst->addVPState(DynInst::VP_Correct);
+            }
+
+            DPRINTF(ValuePredictor, "[sn:%llu] (LSQ SplitDataRequest) PC %#llx.%#llx | VP_Valid = %d VP_Used = %d VP_Correct = %d Correct = %d\n",
+                _inst->seqNum, _inst->pcState().instAddr(), _inst->pcState().microPC(),
+                _inst->isVPValid(), _inst->isVPUsed(), _inst->isVPCorrect(), correct);
             
             delete resp;
         }

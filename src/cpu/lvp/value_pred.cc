@@ -72,7 +72,7 @@ ValuePredictor::predictValue(Addr pc, Addr upc, InstSeqNum inst_seq_num)
     const LCTEntry &lctEntry = lct[idx];
 
     // First check if we should predict according to the LCT
-    bool valid = lvptEntry.valid && lctEntry.shouldPredict();
+    bool valid = lvptEntry.valid;
 
     // print out the prediction state, convert to string using case
     std::string state;
@@ -94,7 +94,7 @@ ValuePredictor::predictValue(Addr pc, Addr upc, InstSeqNum inst_seq_num)
             break;
     }
     
-    DPRINTF(ValuePredictor, "[sn:%llu] (VP) PC %#llx.%#llx | Prediction state: %s\n",
+    DPRINTF(ValuePredictor, "[sn:%llu] (VP) PC %#llx.%#llx | LCT State: %s\n",
             inst_seq_num, pc, upc, state);
 
     if (valid) {
@@ -113,6 +113,7 @@ ValuePredictor::update(Addr pc, Addr upc, InstSeqNum inst_seq_num, uint64_t actu
     unsigned idx = hash(pc, upc);
     LVPTEntry &lvptEntry = lvpt[idx];
     LCTEntry &lctEntry = lct[idx];
+    bool correct;
 
     // Update the confidence counter in the LCT
     if (lvptEntry.valid) {
@@ -171,13 +172,14 @@ ValuePredictor::update(Addr pc, Addr upc, InstSeqNum inst_seq_num, uint64_t actu
     }
 
     // Update the LVPT with the new value
+    correct = (actual_value == lvptEntry.predictedValue);
     lvptEntry.predictedValue = actual_value;
     lvptEntry.valid = true;
     lvptEntry.lastUpdate = inst_seq_num;
 
     // Update the LCT's last update
     lctEntry.lastUpdate = inst_seq_num;
-    return actual_value == lvptEntry.predictedValue;
+    return correct;
 }
 
 void

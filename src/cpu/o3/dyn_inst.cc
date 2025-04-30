@@ -71,10 +71,6 @@ DynInst::DynInst(const Arrays &arrays, const StaticInstPtr &static_inst,
     instFlags[MemAccPredicate] = true;
 
     // Initialize value prediction status
-    status.reset(HasValuePrediction);
-    status.reset(ValuePredUsed);
-    status.reset(ValuePredCorrect);
-    instFlags[ValuePredictionValid] = false;
     predictedValue = 0;
 
 #ifndef NDEBUG
