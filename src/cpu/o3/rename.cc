@@ -61,12 +61,12 @@ namespace o3
 
 Rename::Rename(CPU *_cpu, const BaseO3CPUParams &params)
     : cpu(_cpu),
+      enableLvp(params.enable_lvp),
       iewToRenameDelay(params.iewToRenameDelay),
       decodeToRenameDelay(params.decodeToRenameDelay),
       commitToRenameDelay(params.commitToRenameDelay),
       renameWidth(params.renameWidth),
       numThreads(params.numThreads),
-      enableLvp(params.enable_lvp),
       stats(_cpu)
 {
     if (renameWidth > MaxWidth)
@@ -1135,12 +1135,10 @@ Rename::renameDestRegs(const DynInstPtr &inst, ThreadID tid)
 
         // For regular instructions, we unset the register in the scoreboard
         // But for loads with value prediction, we'll actually mark it as ready
-        if (enableLvp){
-            if (!(inst->isLoad() && inst->hasVP() && inst->isVpValid())) {
-                scoreboard->unsetReg(rename_result.first);
-            } else {
-                scoreboard->setReg(rename_result.first);
-            }
+        scoreboard->unsetReg(rename_result.first);
+
+        if (enableLvp && inst->isLoad() && inst->hasVP() && inst->isVpValid()) {
+            scoreboard->setReg(rename_result.first);
         }
 
         DPRINTF(Rename,

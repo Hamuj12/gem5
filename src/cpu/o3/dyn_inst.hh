@@ -208,7 +208,7 @@ class DynInst : public ExecContext, public RefCounted
   protected:
 
     /** The predicted value for load instructions. */
-    uint64_t predictedValue;
+    int64_t predictedValue = NULL;
 
     /** The result of the instruction; assumes an instruction can have many
      *  destination registers.

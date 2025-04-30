@@ -1193,7 +1193,8 @@ LSQ::SingleDataRequest::recvTimingResp(PacketPtr pkt)
     assert(_numOutstandingPackets == 1);
     flags.set(Flag::Complete);
     assert(pkt == _packets.front());
-
+    DPRINTF(ValuePredictor, "[sn:%llu] (LSQ SingleDataRequest) PC %#llx.%#llx | In single data request\n",
+        _inst->seqNum, _inst->pcState().instAddr(), _inst->pcState().microPC());
     // Always extract the actual value for loads
     if (isLoad() && lsqUnit()->enableLvp) {
         uint64_t actualValue = 0;        
@@ -1221,30 +1222,40 @@ LSQ::SingleDataRequest::recvTimingResp(PacketPtr pkt)
                 }
         }
         
-        // If there was a prediction, check if it was correct
-        bool correct = false;
-        DPRINTF(ValuePredictor, "[sn:%llu] (LSQ SingleDataRequest) PC %#llx.%#llx | HasVP: %s, VPUsed: %s\n",
+            // Check if there was a prediction and if so, validate it
+            bool correct = false;
+            DPRINTF(ValuePredictor, "[sn:%llu] (LSQ SplitDataRequest) PC %#llx.%#llx | HasVP: %d | VPUsed: %d\n",
                 _inst->seqNum, _inst->pcState().instAddr(), _inst->pcState().microPC(),
-                _inst->hasVP() ? "true" : "false", _inst->vpUsed() ? "true" : "false");
-        if (_inst->hasVP() && _inst->vpUsed()) {
-            correct = (_inst->getPredValue() == actualValue);
-            _inst->setVpCorrect(correct);
+                _inst->hasVP(), _inst->vpUsed());
+            // if (_inst->hasVP() && _inst->vpUsed()) {
+                // correct = (_inst->getPredValue() == actualValue);
+                // if(_inst->getPredValue() == NULL) {
+                //     // print out getpredvalue
+                //     DPRINTF(ValuePredictor, "[sn:%llu] (LSQ) PC %#llx.%#llx | SplitDataRequest: getPredValue is NULL\n",
+                //         _inst->seqNum, _inst->pcState().instAddr(), _inst->pcState().microPC());
+                //     correct = false;
+                // } else {
+                //     correct = (_inst->getPredValue() == actualValue);
+                // }
+                // _inst->setVpCorrect(correct);
 
-            DPRINTF(ValuePredictor, "[sn:%llu] (LSQ) PC %#llx.%#llx | SingleDataRequest: value prediction is %s\n",
-                _inst->seqNum, _inst->pcState().instAddr(), _inst->pcState().microPC(), correct ? "correct" : "incorrect");
-        }
+                // DPRINTF(ValuePredictor, "[sn:%llu] (LSQ) PC %#llx.%#llx | SplitDataRequest: value prediction is %s\n",
+                //     _inst->seqNum, _inst->pcState().instAddr(), _inst->pcState().microPC(), correct ? "correct" : "incorrect");
+            // }
         
-        // Always update the value predictor with the actual value
-        CPU *cpu = _port.getCPU();
-        if (cpu->getValuePredictor()) {
-            cpu->getValuePredictor()->update(
-                _inst->pcState().instAddr(),
-                _inst->pcState().microPC(),
-                _inst->seqNum,
-                actualValue,
-                _inst->hasVP() && _inst->vpUsed() ? correct : false
-            );
-        }
+            CPU *cpu = _port.getCPU();
+            if (cpu->getValuePredictor()) {
+                correct = cpu->getValuePredictor()->update(
+                    _inst->pcState().instAddr(),
+                    _inst->pcState().microPC(),
+                    _inst->seqNum,
+                    actualValue
+                    // _inst->hasVP() && _inst->vpUsed() ? correct : false
+                    // correct
+                );
+            }
+
+            _inst->setVpCorrect(correct);
     }
 
     _port.completeDataAccess(pkt);
@@ -1260,6 +1271,8 @@ LSQ::SplitDataRequest::recvTimingResp(PacketPtr pkt)
         pktIdx++;
     assert(pktIdx < _packets.size());
     numReceivedPackets++;
+    DPRINTF(ValuePredictor, "[sn:%llu] (LSQ SplitDataRequest) PC %#llx.%#llx | In single data request\n",
+        _inst->seqNum, _inst->pcState().instAddr(), _inst->pcState().microPC());
     if (numReceivedPackets == _packets.size()) {
         flags.set(Flag::Complete);
 
@@ -1293,28 +1306,39 @@ LSQ::SplitDataRequest::recvTimingResp(PacketPtr pkt)
             
             // Check if there was a prediction and if so, validate it
             bool correct = false;
-            DPRINTF(ValuePredictor, "[sn:%llu] (LSQ SplitDataRequest) PC %#llx.%#llx | HasVP: %s, VPUsed: %s\n",
+            DPRINTF(ValuePredictor, "[sn:%llu] (LSQ SplitDataRequest) PC %#llx.%#llx | HasVP: %d, VPUsed: %d\n",
                 _inst->seqNum, _inst->pcState().instAddr(), _inst->pcState().microPC(),
-                _inst->hasVP() ? "true" : "false", _inst->vpUsed() ? "true" : "false");
-            if (_inst->hasVP() && _inst->vpUsed()) {
-                correct = (_inst->getPredValue() == actualValue);
-                _inst->setVpCorrect(correct);
+                _inst->hasVP(), _inst->vpUsed());
+            // if (_inst->hasVP() && _inst->vpUsed()) {
+                // correct = (_inst->getPredValue() == actualValue);
+                // if(_inst->getPredValue() == NULL) {
+                //     // print out getpredvalue
+                //     DPRINTF(ValuePredictor, "[sn:%llu] (LSQ) PC %#llx.%#llx | SplitDataRequest: getPredValue is NULL\n",
+                //         _inst->seqNum, _inst->pcState().instAddr(), _inst->pcState().microPC());
+                    
+                //     correct = false;
+                // } else {
+                //     correct = (_inst->getPredValue() == actualValue);
+                // }
 
-                DPRINTF(ValuePredictor, "[sn:%llu] (LSQ) PC %#llx.%#llx | SplitDataRequest: value prediction is %s\n",
-                    _inst->seqNum, _inst->pcState().instAddr(), _inst->pcState().microPC(), correct ? "correct" : "incorrect");
-            }
-            
+                // DPRINTF(ValuePredictor, "[sn:%llu] (LSQ) PC %#llx.%#llx | SplitDataRequest: value prediction is %s\n",
+                //     _inst->seqNum, _inst->pcState().instAddr(), _inst->pcState().microPC(), correct ? "correct" : "incorrect");
+            // }
+             
             // Always update the value predictor, even for first-time loads
             CPU *cpu = _port.getCPU();
             if (cpu->getValuePredictor()) {
-                cpu->getValuePredictor()->update(
+                correct = cpu->getValuePredictor()->update(
                     _inst->pcState().instAddr(),
                     _inst->pcState().microPC(),
                     _inst->seqNum,
-                    actualValue,
-                    _inst->hasVP() && _inst->vpUsed() ? correct : false
+                    actualValue
+                    // _inst->hasVP() && _inst->vpUsed() ? correct : false
+                    // correct
                 );
             }
+
+            _inst->setVpCorrect(correct);
             
             delete resp;
         }

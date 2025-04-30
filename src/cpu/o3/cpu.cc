@@ -78,6 +78,7 @@ CPU::CPU(const BaseO3CPUParams &params)
                 false, Event::CPU_Tick_Pri),
       threadExitEvent([this]{ exitThreads(); }, "O3CPU exit threads",
                 false, Event::CPU_Exit_Pri),
+      enableLvp(params.enable_lvp),
 #ifndef NDEBUG
       instcount(0),
 #endif
@@ -87,8 +88,6 @@ CPU::CPU(const BaseO3CPUParams &params)
       rename(this, params),
       iew(this, params),
       commit(this, params),
-
-      enableLvp(params.enable_lvp),
 
       regFile(params.numPhysIntRegs,
               params.numPhysFloatRegs,

@@ -706,7 +706,6 @@ Decode::decodeInsts(ThreadID tid)
 
         // Check if the instruction is a load and make value prediction
         if (enableLvp && inst->isLoad()) {
-            bool valid = false;
 
             // print the original x86 macro-instruction, not the uop
             if (inst->macroop) {
@@ -718,11 +717,10 @@ Decode::decodeInsts(ThreadID tid)
             }
 
             // Get prediction from the value predictor
-            uint64_t predValue = valuePredictor->predictValue(
+            auto [predValue, valid] = valuePredictor->predictValue(
                 inst->pcState().instAddr(),
                 inst->pcState().microPC(),
-                inst->seqNum, 
-                valid);
+                inst->seqNum);
             
             if (valid) {
                 // Store the predicted value in the instruction

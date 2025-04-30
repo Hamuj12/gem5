@@ -62,8 +62,8 @@ ValuePredictor::reset()
     }
 }
 
-uint64_t
-ValuePredictor::predictValue(Addr pc, Addr upc, InstSeqNum inst_seq_num, bool &valid)
+std::pair<uint64_t,bool>
+ValuePredictor::predictValue(Addr pc, Addr upc, InstSeqNum inst_seq_num)
 {
     stats.predictions++;
 
@@ -72,7 +72,7 @@ ValuePredictor::predictValue(Addr pc, Addr upc, InstSeqNum inst_seq_num, bool &v
     const LCTEntry &lctEntry = lct[idx];
 
     // First check if we should predict according to the LCT
-    valid = lvptEntry.valid && lctEntry.shouldPredict();
+    bool valid = lvptEntry.valid && lctEntry.shouldPredict();
 
     // print out the prediction state, convert to string using case
     std::string state;
@@ -104,12 +104,11 @@ ValuePredictor::predictValue(Addr pc, Addr upc, InstSeqNum inst_seq_num, bool &v
                 inst_seq_num, pc, upc);
     }
 
-    return lvptEntry.predictedValue;
+    return {lvptEntry.predictedValue, valid};
 }
 
-void
-ValuePredictor::update(Addr pc, Addr upc, InstSeqNum inst_seq_num, uint64_t actual_value,
-                      bool prediction_correct)
+bool
+ValuePredictor::update(Addr pc, Addr upc, InstSeqNum inst_seq_num, uint64_t actual_value)
 {
     unsigned idx = hash(pc, upc);
     LVPTEntry &lvptEntry = lvpt[idx];
@@ -138,7 +137,7 @@ ValuePredictor::update(Addr pc, Addr upc, InstSeqNum inst_seq_num, uint64_t actu
         DPRINTF(ValuePredictor, "[sn:%llu] (VP) PC %#llx.%#llx | LCT state before update: %s\n",
             inst_seq_num, pc, upc, state);
 
-        if (prediction_correct) {
+        if (actual_value == lvptEntry.predictedValue) {
             lctEntry.incrementCounter();
             stats.correctPredictions++;
             DPRINTF(ValuePredictor, "[sn:%llu] (VP) PC %#llx.%#llx | Correct prediction, predicted value 0x%x, actual value 0x%x\n",
@@ -178,6 +177,7 @@ ValuePredictor::update(Addr pc, Addr upc, InstSeqNum inst_seq_num, uint64_t actu
 
     // Update the LCT's last update
     lctEntry.lastUpdate = inst_seq_num;
+    return actual_value == lvptEntry.predictedValue;
 }
 
 void

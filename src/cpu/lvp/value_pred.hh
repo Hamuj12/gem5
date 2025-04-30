@@ -63,7 +63,7 @@ private:
      * @param valid Output parameter that indicates if the prediction should be used.
      * @return The predicted value.
      */
-    uint64_t predictValue(Addr pc, Addr upc, InstSeqNum inst_seq_num, bool &valid);
+    std::pair<uint64_t,bool> predictValue(Addr pc, Addr upc, InstSeqNum inst_seq_num);
 
     /**
      * Updates the value prediction table with the actual value from a load.
@@ -72,8 +72,7 @@ private:
      * @param actual_value The actual value loaded from memory.
      * @param prediction_correct Whether the prediction was correct.
      */
-    void update(Addr pc, Addr upc, InstSeqNum inst_seq_num, uint64_t actual_value,
-                bool prediction_correct);
+    bool update(Addr pc, Addr upc, InstSeqNum inst_seq_num, uint64_t actual_value);
 
     /**
      * Squash all value predictions from instructions after the given sequence number.
