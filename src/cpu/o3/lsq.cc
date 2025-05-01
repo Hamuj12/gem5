@@ -841,6 +841,33 @@ LSQ::pushRequest(const DynInstPtr& inst, bool isLoad, uint8_t *data,
             inst->effSize = size;
             inst->effAddrValid(true);
 
+            // ─── CVU bypass for constant loads ────────────────────────────
+            if (isLoad &&
+                cpu->enableLvp &&
+                cpu->getValuePredictor()->getLCTState(
+                    inst->pcState().instAddr(),
+                    inst->pcState().microPC()
+                ) == gem5::lvp::ValuePredictor::LCTState::CONSTANT &&
+                cpu->getValuePredictor()->checkCVU(inst->effAddr)) {
+
+                // Pull predicted value out of the LVPT
+                int64_t pred_val = inst->getPredValue();
+
+                // Stuff it into the load’s data buffer
+                inst->memData = new uint8_t[sizeof(pred_val)];
+                memcpy(inst->memData, &pred_val, sizeof(pred_val));
+
+                // Complete the inst without actually hitting the cache
+                inst->setExecuted();
+                inst->setResultReady();
+                iewStage->instToCommit(inst);
+                iewStage->activityThisCycle();
+                // ++_port->stats.cvuHits;
+
+                return NoFault;
+            }
+            // ───────────────────────────────────────────────────────────────
+
             if (cpu->checker) {
                 inst->reqToVerify = std::make_shared<Request>(*request->req());
             }

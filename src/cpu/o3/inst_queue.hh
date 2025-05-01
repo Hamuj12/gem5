@@ -561,6 +561,12 @@ class InstructionQueue
         statistics::Scalar fpAluAccesses;
         statistics::Scalar vecAluAccesses;
     } iqIOStats;
+
+    // getter method for memdep unit
+    MemDepUnit *getMemDepUnit(ThreadID tid)
+    {
+        return &memDepUnit[tid];
+    }
 };
 
 } // namespace o3
