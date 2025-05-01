@@ -108,9 +108,8 @@ private:
     * Updates the CVU with a new constant value
     * @param addr The memory address
     * @param pc The PC of the instruction
-    * @param value The constant value
     */
-    void updateCVU(Addr addr, Addr pc, uint64_t value);
+    void updateCVU(Addr addr, Addr pc);
 
     /**
      * Gets the current prediction state for an instruction at the given address.

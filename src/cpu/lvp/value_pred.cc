@@ -241,7 +241,7 @@ ValuePredictor::invalidateCVU(Addr addr)
 }
 
 void 
-ValuePredictor::updateCVU(Addr addr, Addr pc, uint64_t value)
+ValuePredictor::updateCVU(Addr addr, Addr pc)
 {
     unsigned idx = cvuHash(addr);
     //print out the idx of the cvu
@@ -251,12 +251,11 @@ ValuePredictor::updateCVU(Addr addr, Addr pc, uint64_t value)
     cvu[idx].valid = true;
     cvu[idx].dataAddr = addr;
     cvu[idx].instrAddr = pc;
-    cvu[idx].value = value;
 
     //print out the cvu entry
-    DPRINTF(ValuePredictor, "(VP) PC %#llx | CVU entry updated: valid: %s | dataAddr: %#x | instrAddr: %#x | value: %#llx, idx: %d\n",
+    DPRINTF(ValuePredictor, "(VP) PC %#llx | CVU entry updated: valid: %s | dataAddr: %#x | instrAddr: %#x | idx: %d\n",
             pc, cvu[idx].valid ? "true" : "false", cvu[idx].dataAddr,
-            cvu[idx].instrAddr, cvu[idx].value, idx);
+            cvu[idx].instrAddr, idx);
 }
 
 void
