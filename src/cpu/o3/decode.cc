@@ -717,7 +717,7 @@ Decode::decodeInsts(ThreadID tid)
             }
 
             // Get prediction from the value predictor
-            auto [predValue, valid] = valuePredictor->predictValue(
+            auto [predValue, valid, vpCorrect, vpUsed] = valuePredictor->predictValue(
                 inst->pcState().instAddr(),
                 inst->pcState().microPC(),
                 inst->seqNum);
@@ -726,6 +726,12 @@ Decode::decodeInsts(ThreadID tid)
                 // Store the predicted value in the instruction
                 inst->setPredValue(predValue);
                 inst->addVPState(DynInst::VP_Valid);
+                if (vpCorrect) {
+                    inst->addVPState(DynInst::VP_Correct);
+                }
+                if (vpUsed) {
+                    inst->addVPState(DynInst::VP_Used);
+                }
                 DPRINTF(ValuePredictor, "[tid:%i] [sn:%llu] (DECODE) PC %#llx.%#llx | predicted value 0x%x\n",
                         tid, inst->seqNum, inst->pcState().instAddr(), inst->pcState().microPC(), predValue);
                 DPRINTF(ValuePredictor, "[tid:%i] [sn:%llu] (DECODE) PC %#llx.%#llx | VP_Valid = %d VP_Used = %d VP_Correct = %d\n",

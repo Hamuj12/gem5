@@ -191,7 +191,12 @@ LSQUnit::completeDataAccess(PacketPtr pkt)
         }
 
         // Now check if this load had a value prediction and handle misprediction
-        if (inst->isLoad() && inst->isVPValid() && inst->isVPUsed() && cpu->enableLvp) {
+        //print out this if statement
+        DPRINTF(ValuePredictor, "[tid:%i] [sn:%llu] (LSQ_UNIT) PC %#llx.%#llx | isLoad = %d isVPValid = %d enableLvp = %d\n",
+                tid, inst->seqNum, inst->pcState().instAddr(),
+                inst->pcState().microPC(), inst->isLoad(), inst->isVPValid(), cpu->enableLvp);
+
+        if (inst->isLoad() && inst->isVPValid() && cpu->enableLvp) {
             // If the prediction was incorrect, trigger the recovery mechanism
             if (!inst->isVPCorrect()) {
                 // This is the central place to handle mispredictions
@@ -647,6 +652,14 @@ LSQUnit::executeLoad(const DynInstPtr &inst)
     // Check if this address is in the CVU
     uint64_t cvu_value;
     Addr loadPC;
+    //print out this if statement
+    DPRINTF(ValuePredictor, "[tid:%i] [sn:%llu] (LSQ_UNIT) PC %#llx.%#llx | "
+            "Checking CVU for address %#x, checkCVU = %s\n",
+            tid, inst->seqNum, inst->pcState().instAddr(),
+            inst->pcState().microPC(), inst->effAddr,
+            cpu->getValuePredictor()->checkCVU(inst->effAddr, cvu_value, loadPC) ?
+            "true" : "false");
+
     if (cpu->getValuePredictor()->checkCVU(inst->effAddr, cvu_value, loadPC) && cpu->enableLvp) {
         // We have a CVU hit, can use the value directly without cache access
         DPRINTF(ValuePredictor, "[tid:%i] [sn:%llu] (LSQ_UNIT) PC %#llx.%#llx | "
@@ -1420,11 +1433,11 @@ LSQUnit::read(LSQRequest *request, ssize_t load_idx)
     assert(load_inst);
 
     if (load_inst->isExecuted() && cpu->enableLvp) {
-        DPRINTF(ValuePredictor, "[tid:%i] [sn:%llu] (LSQ_UNIT) PC %#llx.%#llx | "
-                "Skipping memory access for already-executed load\n",
-                load_inst->threadNumber, load_inst->seqNum,
-                load_inst->pcState().instAddr(),
-                load_inst->pcState().microPC());
+        // DPRINTF(ValuePredictor, "[tid:%i] [sn:%llu] (LSQ_UNIT) PC %#llx.%#llx | "
+        //         "Skipping memory access for already-executed load\n",
+        //         load_inst->threadNumber, load_inst->seqNum,
+        //         load_inst->pcState().instAddr(),
+        //         load_inst->pcState().microPC());
 
         iewStage->instToCommit(load_inst);
         iewStage->activityThisCycle();

@@ -6,6 +6,7 @@
 #include "cpu/inst_seq.hh"
 #include "params/ValuePredictor.hh"
 #include "sim/sim_object.hh"
+#include <tuple>
 
 namespace gem5 {
 namespace lvp {  // New namespace
@@ -63,7 +64,7 @@ private:
      * @param valid Output parameter that indicates if the prediction should be used.
      * @return The predicted value.
      */
-    std::pair<uint64_t,bool> predictValue(Addr pc, Addr upc, InstSeqNum inst_seq_num);
+     std::tuple<uint64_t, bool, bool, bool> predictValue(Addr pc, Addr upc, InstSeqNum inst_seq_num);
 
     /**
      * Updates the value prediction table with the actual value from a load.
@@ -73,6 +74,14 @@ private:
      * @param prediction_correct Whether the prediction was correct.
      */
     bool update(Addr pc, Addr upc, InstSeqNum inst_seq_num, uint64_t actual_value);
+
+    /**
+     * Marks a prediction as used.
+     * @param pc The program counter of the instruction.
+     * @param upc The micro program counter of the instruction.
+     * @param seqNum The sequence number of the instruction.
+     */
+    void markPredictionUsed(Addr pc, Addr upc, InstSeqNum seqNum);
 
     /**
      * Squash all value predictions from instructions after the given sequence number.
@@ -123,10 +132,12 @@ private:
     // LVPT entry structure
     struct LVPTEntry {
         uint64_t predictedValue;  // The last value seen for this load
-        bool valid;               // Whether the entry contains a valid prediction
         InstSeqNum lastUpdate;    // Sequence number of last instruction that updated this entry
+        bool VPValid;           // Whether the prediction is valid
+        bool VPCorrect;         // Whether the prediction was correct
+        bool VPUsed;            // Whether the prediction was used
 
-        LVPTEntry() : predictedValue(0), valid(false), lastUpdate(0) {}
+        LVPTEntry() : predictedValue(0), lastUpdate(0), VPValid(false), VPCorrect(false), VPUsed(false) {}
     };
 
     // CVU entry structure

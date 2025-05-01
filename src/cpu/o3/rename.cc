@@ -1181,6 +1181,9 @@ Rename::renameDestRegs(const DynInstPtr &inst, ThreadID tid)
             
             // Mark that the prediction is being used
             inst->addVPState(DynInst::VP_Used);
+
+            //update the lvpt entry 
+            cpu->getValuePredictor()->markPredictionUsed(inst->pcState().instAddr(), inst->pcState().microPC(), inst->seqNum);
             
             // Set the predicted value in the register file
             cpu->setReg(rename_result.first, inst->getPredValue(), tid);

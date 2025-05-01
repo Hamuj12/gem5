@@ -4,6 +4,7 @@
 #include "base/logging.hh"
 #include "base/trace.hh"
 #include "debug/ValuePredictor.hh"
+#include <tuple>
 
 namespace gem5 {
 namespace lvp {  // New namespace
@@ -51,7 +52,7 @@ void
 ValuePredictor::reset()
 {
     for (auto &entry : lvpt) {
-        entry.valid = false;
+        entry.VPValid = false;
         entry.predictedValue = 0;
         entry.lastUpdate = 0;
     }
@@ -62,7 +63,7 @@ ValuePredictor::reset()
     }
 }
 
-std::pair<uint64_t,bool>
+std::tuple<uint64_t, bool, bool, bool> 
 ValuePredictor::predictValue(Addr pc, Addr upc, InstSeqNum inst_seq_num)
 {
     stats.predictions++;
@@ -72,7 +73,7 @@ ValuePredictor::predictValue(Addr pc, Addr upc, InstSeqNum inst_seq_num)
     const LCTEntry &lctEntry = lct[idx];
 
     // First check if we should predict according to the LCT
-    bool valid = lvptEntry.valid;
+    bool valid = lvptEntry.VPValid;
 
     // print out the prediction state, convert to string using case
     std::string state;
@@ -104,7 +105,7 @@ ValuePredictor::predictValue(Addr pc, Addr upc, InstSeqNum inst_seq_num)
                 inst_seq_num, pc, upc);
     }
 
-    return {lvptEntry.predictedValue, valid};
+    return std::make_tuple(lvptEntry.predictedValue, valid, lvptEntry.VPCorrect, lvptEntry.VPUsed);
 }
 
 bool
@@ -116,7 +117,7 @@ ValuePredictor::update(Addr pc, Addr upc, InstSeqNum inst_seq_num, uint64_t actu
     bool correct;
 
     // Update the confidence counter in the LCT
-    if (lvptEntry.valid) {
+    if (lvptEntry.VPValid) {
         // print state of the LVPT entry
         std::string state;
         switch (lctEntry.state) {
@@ -174,11 +175,10 @@ ValuePredictor::update(Addr pc, Addr upc, InstSeqNum inst_seq_num, uint64_t actu
     // Update the LVPT with the new value
     correct = (actual_value == lvptEntry.predictedValue);
     lvptEntry.predictedValue = actual_value;
-    lvptEntry.valid = true;
+    lvptEntry.VPValid = true;
     lvptEntry.lastUpdate = inst_seq_num;
+    lvptEntry.VPCorrect = correct;
 
-    // Update the LCT's last update
-    lctEntry.lastUpdate = inst_seq_num;
     return correct;
 }
 
@@ -188,7 +188,12 @@ ValuePredictor::squash(InstSeqNum inst_seq_num)
     // Invalidate all entries updated by instructions after the squashed one
     for (auto &entry : lvpt) {
         if (entry.lastUpdate >= inst_seq_num) {
-            entry.valid = false;
+            entry.predictedValue = 0;
+            entry.VPValid = false;
+            entry.VPCorrect = false;
+            entry.VPUsed = false;
+            entry.lastUpdate = 0;
+            DPRINTF(ValuePredictor, "[sn:%llu] (VP) Invalidating LVPT entry\n", inst_seq_num);
         }
     }
 
@@ -204,6 +209,9 @@ ValuePredictor::checkCVU(Addr addr, uint64_t &value, Addr &loadPC)
 {
     unsigned idx = cvuHash(addr);
     CVUEntry &e = cvu[idx];
+    //print out e.valid and e.dataAddr and addr
+    DPRINTF(ValuePredictor, "(VP) Checking CVU for address %#x | CVU index %d | valid: %s | dataAddr: %#x\n",
+            addr, idx, e.valid ? "true" : "false", e.dataAddr);
     if (e.valid && e.dataAddr == addr) {
         value   = e.value;
         loadPC  = e.instrAddr;    // grab the PC recorded
@@ -226,7 +234,16 @@ void
 ValuePredictor::updateCVU(Addr addr, Addr pc, uint64_t value)
 {
     unsigned idx = cvuHash(addr);
+    //print out the idx of the cvu
+    DPRINTF(ValuePredictor, "(VP) PC %#llx | instruction address %#llx | CVU index %d\n",
+            pc, addr, idx);
     cvu[idx] = CVUEntry(addr, pc, value);
+    cvu[idx].valid = true;
+
+    //print out the cvu entry
+    DPRINTF(ValuePredictor, "(VP) PC %#llx | CVU entry updated: valid: %s | dataAddr: %#x | instrAddr: %#x | value: %#llx, idx: %d\n",
+            pc, cvu[idx].valid ? "true" : "false", cvu[idx].dataAddr,
+            cvu[idx].instrAddr, cvu[idx].value, idx);
 }
 
 void
@@ -235,6 +252,22 @@ ValuePredictor::setLCTState(Addr pc, Addr upc, LCTState newState)
     unsigned idx = hash(pc, upc);
     auto &entry = lct[idx];
     entry.state      = newState;
+}
+
+void ValuePredictor::markPredictionUsed(Addr pc, Addr upc, InstSeqNum seqNum) {
+    unsigned idx = hash(pc, upc);
+    LVPTEntry &entry = lvpt[idx];
+    
+    if (entry.VPValid) {
+        // Mark that this prediction was actually used
+        entry.VPUsed = true;
+        
+        // Could also update additional statistics here
+        stats.predictionsUsed++;
+        
+        DPRINTF(ValuePredictor, "[sn:%llu] (VP) PC %#llx.%#llx | Marked prediction as used\n",
+                seqNum, pc, upc);
+    }
 }
 
 } // namespace lvp
