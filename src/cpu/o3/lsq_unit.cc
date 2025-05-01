@@ -196,7 +196,7 @@ LSQUnit::completeDataAccess(PacketPtr pkt)
                 tid, inst->seqNum, inst->pcState().instAddr(),
                 inst->pcState().microPC(), inst->isLoad(), inst->isVPValid(), cpu->enableLvp);
 
-        if (inst->isLoad() && inst->isVPValid() && cpu->enableLvp) {
+        if (inst->isLoad() && inst->effAddrValid() &&inst->isVPValid() && cpu->enableLvp) {
             // If the prediction was incorrect, trigger the recovery mechanism
             if (!inst->isVPCorrect()) {
                 // This is the central place to handle mispredictions
@@ -223,11 +223,12 @@ LSQUnit::completeDataAccess(PacketPtr pkt)
                     
                     // Add this address to the CVU
                     cpu->getValuePredictor()->updateCVU(
-                        inst->effAddr, inst->pcState().microPC(), actual_value);
+                        inst->effAddr, inst->pcState().instAddr(), actual_value);
 
                     DPRINTF(ValuePredictor, "[tid:%i] [sn:%llu] (LSQ_UNIT) PC %#llx.%#llx | Added constant value 0x%lx at address %#x to CVU\n",
                             tid, inst->seqNum, inst->pcState().instAddr(),
-                            inst->pcState().microPC(), actual_value, inst->effAddr);
+                            inst->pcState().microPC(), actual_value,
+                            inst->effAddr);
                 }
             }
         }
@@ -649,44 +650,45 @@ LSQUnit::executeLoad(const DynInstPtr &inst)
 
     assert(!inst->isSquashed());
 
-    // Check if this address is in the CVU
-    uint64_t cvu_value;
-    Addr loadPC;
-    //print out this if statement
-    DPRINTF(ValuePredictor, "[tid:%i] [sn:%llu] (LSQ_UNIT) PC %#llx.%#llx | "
-            "Checking CVU for address %#x, checkCVU = %s\n",
-            tid, inst->seqNum, inst->pcState().instAddr(),
-            inst->pcState().microPC(), inst->effAddr,
-            cpu->getValuePredictor()->checkCVU(inst->effAddr, cvu_value, loadPC) ?
-            "true" : "false");
-
-    if (cpu->getValuePredictor()->checkCVU(inst->effAddr, cvu_value, loadPC) && cpu->enableLvp) {
-        // We have a CVU hit, can use the value directly without cache access
-        DPRINTF(ValuePredictor, "[tid:%i] [sn:%llu] (LSQ_UNIT) PC %#llx.%#llx | "
-                "CVU hit for address %#x, value=0x%lx\n",
-                tid, inst->seqNum, inst->pcState().instAddr(),
-                inst->pcState().microPC(), inst->effAddr, cvu_value);
-
-        // Set the data directly
-        // inst->setMemData(reinterpret_cast<uint8_t*>(&cvu_value), sizeof(cvu_value));
-        inst->memData = new uint8_t[sizeof(cvu_value)];
-        memcpy(inst->memData, &cvu_value, sizeof(cvu_value));
-        
-        // Mark the load as executed and complete it without memory access
-        inst->setExecuted();
-        inst->setResultReady();
-
-        // Send to commit
-        iewStage->instToCommit(inst);
-        iewStage->activityThisCycle();
-        
-        // Increment CVU hit statistics
-        ++stats.cvuHits;
-        
-        return NoFault;
-    }
-
     load_fault = inst->initiateAcc();
+
+    if(inst->effAddrValid() && cpu->getValuePredictor()->getLCTState(inst->pcState().instAddr(), inst->pcState().microPC()) ==
+        gem5::lvp::ValuePredictor::LCTState::CONSTANT) {
+        // Check if this address is in the CVU
+        //print out this if statement and inst->effAddr
+        DPRINTF(ValuePredictor, "[tid:%i] [sn:%llu] (LSQ_UNIT) PC %#llx.%#llx | "
+                "LSQUNIT::executeLoad() | effAddr = %#x\n, checkCVU = %d\n",
+                tid, inst->seqNum, inst->pcState().instAddr(),
+                inst->pcState().microPC(), inst->effAddr,
+                cpu->getValuePredictor()->checkCVU(inst->effAddr));
+                
+        if (cpu->getValuePredictor()->checkCVU(inst->effAddr) && cpu->enableLvp) {
+            // We have a CVU hit, can use the value directly without cache access
+            int64_t pred_val = inst->getPredValue();
+            DPRINTF(ValuePredictor, "[tid:%i] [sn:%llu] (LSQ_UNIT) PC %#llx.%#llx | "
+                    "CVU hit for address %#x, value=0x%lx\n",
+                    tid, inst->seqNum, inst->pcState().instAddr(),
+                    inst->pcState().microPC(), inst->effAddr, pred_val);
+            // if it is in the CVU, get the value from LVPT
+            // Set the data directly
+            inst->memData = new uint8_t[sizeof(pred_val)];
+            memcpy(inst->memData, &pred_val, sizeof(pred_val));
+
+            
+            // Mark the load as executed and complete it without memory access
+            inst->setExecuted();
+            inst->setResultReady();
+
+            // Send to commit
+            iewStage->instToCommit(inst);
+            iewStage->activityThisCycle();
+               
+            // Increment CVU hit statistics
+            ++stats.cvuHits;
+            
+            return NoFault;
+        }
+    }
 
     if (load_fault == NoFault && !inst->readMemAccPredicate()) {
         assert(inst->readPredicate());
@@ -798,11 +800,12 @@ LSQUnit::executeStore(const DynInstPtr &store_inst)
     if (store_inst->effAddrValid() && cpu->enableLvp) {
         auto vp = cpu->getValuePredictor();
         Addr storeAddr = store_inst->effAddr;
-        uint64_t constVal;
         Addr loadPC = store_inst->pcState().instAddr();
 
         // only if there *is* a CVU entry do we do anything
-        if (vp->checkCVU(storeAddr, constVal, loadPC)) {
+        if((vp->getLCTState(loadPC, store_inst->pcState().microPC()) == gem5::lvp::ValuePredictor::LCTState::CONSTANT) 
+            && vp->checkCVU(storeAddr)) {
+            // Invalidate the CVU entry
             vp->invalidateCVU(storeAddr);
             vp->setLCTState(loadPC, store_inst->pcState().microPC(), lvp::ValuePredictor::LCTState::PREDICT);
 

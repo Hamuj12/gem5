@@ -96,7 +96,7 @@ private:
     * @param loadPC Output parameter for the PC of the instruction
     * @return True if the address is in the CVU and valid
     */
-    bool checkCVU(Addr addr, uint64_t &value, Addr &loadPC);
+    bool checkCVU(Addr addr);
 
     /**
     * Invalidates a CVU entry if it exists

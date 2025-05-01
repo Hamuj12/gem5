@@ -53,6 +53,8 @@ ValuePredictor::reset()
 {
     for (auto &entry : lvpt) {
         entry.VPValid = false;
+        entry.VPUsed = false;
+        entry.VPCorrect = false;
         entry.predictedValue = 0;
         entry.lastUpdate = 0;
     }
@@ -205,19 +207,27 @@ ValuePredictor::squash(InstSeqNum inst_seq_num)
 }
 
 bool
-ValuePredictor::checkCVU(Addr addr, uint64_t &value, Addr &loadPC)
+ValuePredictor::checkCVU(Addr addr)
 {
     unsigned idx = cvuHash(addr);
-    CVUEntry &e = cvu[idx];
-    //print out e.valid and e.dataAddr and addr
-    DPRINTF(ValuePredictor, "(VP) Checking CVU for address %#x | CVU index %d | valid: %s | dataAddr: %#x\n",
-            addr, idx, e.valid ? "true" : "false", e.dataAddr);
-    if (e.valid && e.dataAddr == addr) {
-        value   = e.value;
-        loadPC  = e.instrAddr;    // grab the PC recorded
+    // Check if the CVU entry is valid and matches the address
+    //print out this if statement and addr
+    DPRINTF(ValuePredictor, "(VP) PC %#llx | CVU check: valid: %s | dataAddr: %#x | instrAddr: %#x | value: %#llx, idx: %d\n",
+            addr, cvu[idx].valid ? "true" : "false", cvu[idx].dataAddr,
+            cvu[idx].instrAddr, cvu[idx].value, idx);
+
+    if (cvu[idx].valid && cvu[idx].dataAddr == addr) {
+        DPRINTF(ValuePredictor, "(VP) PC %#llx | CVU entry found: valid: %s | dataAddr: %#x | instrAddr: %#x | value: %#llx, idx: %d\n",
+                addr, cvu[idx].valid ? "true" : "false", cvu[idx].dataAddr,
+                cvu[idx].instrAddr, cvu[idx].value, idx);
         return true;
     }
-    return false;
+    else {
+        DPRINTF(ValuePredictor, "(VP) PC %#llx | CVU entry not found: valid: %s | dataAddr: %#x | instrAddr: %#x | value: %#llx, idx: %d\n",
+                addr, cvu[idx].valid ? "true" : "false", cvu[idx].dataAddr,
+                cvu[idx].instrAddr, cvu[idx].value, idx);
+        return false;
+    }
 }
 
 void 
@@ -237,8 +247,11 @@ ValuePredictor::updateCVU(Addr addr, Addr pc, uint64_t value)
     //print out the idx of the cvu
     DPRINTF(ValuePredictor, "(VP) PC %#llx | instruction address %#llx | CVU index %d\n",
             pc, addr, idx);
-    cvu[idx] = CVUEntry(addr, pc, value);
+    //update the cvu entry
     cvu[idx].valid = true;
+    cvu[idx].dataAddr = addr;
+    cvu[idx].instrAddr = pc;
+    cvu[idx].value = value;
 
     //print out the cvu entry
     DPRINTF(ValuePredictor, "(VP) PC %#llx | CVU entry updated: valid: %s | dataAddr: %#x | instrAddr: %#x | value: %#llx, idx: %d\n",
