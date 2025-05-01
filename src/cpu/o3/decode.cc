@@ -725,10 +725,11 @@ Decode::decodeInsts(ThreadID tid)
             if (valid) {
                 // Store the predicted value in the instruction
                 inst->setPredValue(predValue);
+                //need to know VP_Valid from prev instructions for the current instruction
                 inst->addVPState(DynInst::VP_Valid);
-                if (vpCorrect) {
-                    inst->addVPState(DynInst::VP_Correct);
-                }
+                //VP_Correct for the current instruction will be set later in the pipeline
+                inst->removeVPState(DynInst::VP_Correct);
+                //need to know VP_Used from prev instructions for the current instruction
                 if (vpUsed) {
                     inst->addVPState(DynInst::VP_Used);
                 }

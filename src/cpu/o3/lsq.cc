@@ -1279,8 +1279,16 @@ LSQ::SingleDataRequest::recvTimingResp(PacketPtr pkt)
             } 
 
             if (correct) {
+                //print out a message that prediction is correct and in lsq state
+               DPRINTF(ValuePredictor, "[sn:%llu] (LSQ) PC %#llx.%#llx | SingleDataRequest: value prediction is correct\n",
+                    _inst->seqNum, _inst->pcState().instAddr(), _inst->pcState().microPC());
                 _inst->addVPState(DynInst::VP_Correct);
-            } 
+            } else {
+                //print out a message that prediction is incorrect and in lsq state
+                DPRINTF(ValuePredictor, "[sn:%llu] (LSQ) PC %#llx.%#llx | SingleDataRequest: value prediction is incorrect\n",
+                    _inst->seqNum, _inst->pcState().instAddr(), _inst->pcState().microPC());
+                _inst->removeVPState(DynInst::VP_Correct);
+            }
 
             // DPRINTF(ValuePredictor, "[sn:%llu] (LSQ SingleDataRequest) PC %#llx.%#llx | VP_Valid = %d VP_Used = %d VP_Correct = %d Correct = %d\n",
             //     _inst->seqNum, _inst->pcState().instAddr(), _inst->pcState().microPC(),
@@ -1372,7 +1380,15 @@ LSQ::SplitDataRequest::recvTimingResp(PacketPtr pkt)
             }
 
             if (correct) {
+                //print out a message that prediction is correct and in lsq state
+                DPRINTF(ValuePredictor, "[sn:%llu] (LSQ) PC %#llx.%#llx | SplitDataRequest: value prediction is correct\n",
+                    _inst->seqNum, _inst->pcState().instAddr(), _inst->pcState().microPC());
                 _inst->addVPState(DynInst::VP_Correct);
+            } else {
+                //print out a message that prediction is incorrect and in lsq state
+                DPRINTF(ValuePredictor, "[sn:%llu] (LSQ) PC %#llx.%#llx | SplitDataRequest: value prediction is incorrect\n",
+                    _inst->seqNum, _inst->pcState().instAddr(), _inst->pcState().microPC());
+                _inst->removeVPState(DynInst::VP_Correct);
             }
 
             DPRINTF(ValuePredictor, "[sn:%llu] (LSQ SplitDataRequest) PC %#llx.%#llx | After update(), Prediction is set to %llu\n | VP_Valid = %d VP_Used = %d VP_Correct = %d\n",

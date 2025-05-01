@@ -454,10 +454,17 @@ IEW::squashDueToValueMisprediction(const DynInstPtr& inst, ThreadID tid)
         // Important: Use the instruction's sequence number 
         // This will squash instructions after this one
         toCommit->squashedSeqNum[tid] = inst->seqNum;
-        
-        // We're not changing the PC like in branch misprediction, 
-        // just continue from the next instruction
-        toCommit->branchTaken[tid] = false;
+
+    // ——— DEBUG: dump every in-flight sn that’s going to be squashed ———
+        DPRINTF(ValuePredictor, "[tid:%i] Squashing everything with sn > %llu:\n", tid, inst->seqNum);
+
+        // Iterate through the instruction queue and print out the sn of
+        // every instruction that is going to be squashed
+    // ——— DEBUG: dump every in-flight sn that’s going to be squashed ———
+        DPRINTF(ValuePredictor, "[tid:%i] Squashing everything with sn > %llu:\n",
+                tid, inst->seqNum);
+        // walk the “rename→IEW” queue
+        // ————————————————————————————————————————————————————————————————
         
         // Set the PC to continue from the instruction after the 
         // mispredicting load, since we want to keep the load itself
@@ -1171,23 +1178,26 @@ IEW::executeInsts()
 
         // This allows dependent instructions with predicted sources to execute
         if (inst->isLoad() && inst->isVPValid() && inst->isVPUsed() && enableLvp) {
+            // if the instruction is a constant load, then we setExecuted and setCanCommit
+            if(cpu->getValuePredictor()->getLCTState(inst->pcState().instAddr(), inst->pcState().microPC()) ==
+                gem5::lvp::ValuePredictor::LCTState::CONSTANT){
+                // We should mark it as executed since the prediction provides its "result"
+                if (!inst->isExecuted())
+                    inst->setExecuted();
+
+                // If this instruction hasn't already been marked ready for commit,
+                // we should do that now since we're using the prediction instead of waiting
+                if (!inst->readyToCommit())
+                    inst->setCanCommit();
+            }else{
+                // Mark the instruction as having used the value prediction
+                inst->setSpeculativelyExecuted();
+            }
             // Track this load in a way that its dependents can use the prediction
             DPRINTF(ValuePredictor, "[tid:%i] [sn:%llu] (IEW) PC %#llx.%#llx | "
                     "Value prediction used for load, forwarding to dependent insts\n",
                     inst->threadNumber, inst->seqNum, inst->pcState().instAddr(),
                     inst->pcState().microPC());
-
-            // Mark the instruction as having used the value prediction
-            inst->setSpeculativelyExecuted();
-
-            // We should mark it as executed since the prediction provides its "result"
-            if (!inst->isExecuted())
-                inst->setExecuted();
-
-            // If this instruction hasn't already been marked ready for commit,
-            // we should do that now since we're using the prediction instead of waiting
-            if (!inst->readyToCommit())
-                inst->setCanCommit();
         }
 
         // Check if the instruction is squashed; if so then skip it

@@ -904,6 +904,7 @@ class DynInst : public ExecContext, public RefCounted
     bool isVPUsed() const { return vpState & VP_Used; }
     bool isVPCorrect() const { return vpState & VP_Correct; }
     void addVPState(uint8_t state) { vpState |= state; }
+    void removeVPState(uint8_t state) { vpState &= ~state; }
     void clearVPState() { vpState = VP_None; }
     uint8_t getVPState() const { return vpState; }
 

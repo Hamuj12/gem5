@@ -199,6 +199,10 @@ LSQUnit::completeDataAccess(PacketPtr pkt)
         if (inst->isLoad() && inst->effAddrValid() &&inst->isVPValid() && cpu->enableLvp) {
             // If the prediction was incorrect, trigger the recovery mechanism
             if (!inst->isVPCorrect()) {
+                //print out a message that prediction is incorrect and in lsq state
+                DPRINTF(ValuePredictor, "[tid:%i] [sn:%llu] (LSQ_UNIT) PC %#llx.%#llx | value prediction is incorrect\n",
+                        tid, inst->seqNum, inst->pcState().instAddr(),
+                        inst->pcState().microPC());
                 // This is the central place to handle mispredictions
                 handleValueMisprediction(inst);
             } else {                        
