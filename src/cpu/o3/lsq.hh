@@ -59,6 +59,8 @@
 #include "enums/SMTQueuePolicy.hh"
 #include "mem/port.hh"
 #include "sim/sim_object.hh"
+#include "base/statistics.hh"
+#include "base/types.hh"
 
 namespace gem5
 {
@@ -74,6 +76,13 @@ class LSQUnit;
 
 class LSQ
 {
+    struct LSQStats : public statistics::Group{
+        statistics::Scalar cvuHits;
+
+        LSQStats(statistics::Group *parent);
+    } lsqStats;
+
+
   public:
     class LSQRequest;
 

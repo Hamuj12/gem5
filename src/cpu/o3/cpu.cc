@@ -1488,8 +1488,6 @@ CPU::handleValueMisprediction(const DynInstPtr &inst) {
     // Call our specialized squash function
     iew.squashDueToValueMisprediction(inst, tid);
 
-    // Update stats
-    cpuStats.valueMispredStats++;
 }
 
 } // namespace o3

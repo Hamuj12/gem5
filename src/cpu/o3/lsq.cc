@@ -85,7 +85,8 @@ LSQ::LSQ(CPU *cpu_ptr, IEW *iew_ptr, const BaseO3CPUParams &params)
       maxSQEntries(maxLSQAllocation(lsqPolicy, SQEntries, params.numThreads,
                   params.smtLSQThreshold)),
       dcachePort(this, cpu_ptr),
-      numThreads(params.numThreads)
+      numThreads(params.numThreads),
+      lsqStats(cpu_ptr)
 {
     assert(numThreads > 0 && numThreads <= MaxThreads);
 
@@ -119,6 +120,15 @@ LSQ::LSQ(CPU *cpu_ptr, IEW *iew_ptr, const BaseO3CPUParams &params)
         thread[tid].init(cpu, iew_ptr, params, this, tid);
         thread[tid].setDcachePort(&dcachePort);
     }
+}
+
+LSQ::LSQStats::LSQStats(statistics::Group *parent)
+    : statistics::Group(parent, "lsq"),
+      ADD_STAT(cvuHits, statistics::units::Count::get(),
+               "Number of loads that hit in the constant value unit")
+{
+    cvuHits
+        .prereq(cvuHits);
 }
 
 
@@ -850,6 +860,8 @@ LSQ::pushRequest(const DynInstPtr& inst, bool isLoad, uint8_t *data,
                 ) == gem5::lvp::ValuePredictor::LCTState::CONSTANT &&
                 cpu->getValuePredictor()->checkCVU(inst->effAddr)) {
 
+                lsqStats.cvuHits++;
+
                 // Pull predicted value out of the LVPT
                 int64_t pred_val = inst->getPredValue();
 
@@ -862,7 +874,6 @@ LSQ::pushRequest(const DynInstPtr& inst, bool isLoad, uint8_t *data,
                 inst->setResultReady();
                 iewStage->instToCommit(inst);
                 iewStage->activityThisCycle();
-                // ++_port->stats.cvuHits;
 
                 return NoFault;
             }

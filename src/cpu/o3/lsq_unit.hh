@@ -552,8 +552,6 @@ class LSQUnit
 
         statistics::Scalar totalPredictions;
 
-        statistics::Scalar cvuHits;
-
     } stats;
 
   public:

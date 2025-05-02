@@ -220,9 +220,6 @@ LSQUnit::completeDataAccess(PacketPtr pkt)
                     cpu->getValuePredictor()->getLCTState(inst->pcState().instAddr(), inst->pcState().microPC()) ==
                     gem5::lvp::ValuePredictor::LCTState::CONSTANT) {
                     
-                    if(cpu->getValuePredictor()->checkCVU(inst->effAddr)) {
-                        stats.cvuHits++;    
-                    }
                     // Add this address to the CVU
                     cpu->getValuePredictor()->updateCVU(
                         inst->effAddr, inst->pcState().instAddr());
@@ -329,9 +326,7 @@ LSQUnit::LSQUnitStats::LSQUnitStats(statistics::Group *parent)
         ADD_STAT(correctPredictions, statistics::units::Count::get(),
                  "Number of correct value predictions"),
         ADD_STAT(totalPredictions, statistics::units::Count::get(),
-                 "Number of value predictions"),
-        ADD_STAT(cvuHits, statistics::units::Count::get(),
-                 "Number of hits in the CVU")
+                 "Number of value predictions")
 {
     loadToUse
         .init(0, 299, 10)
