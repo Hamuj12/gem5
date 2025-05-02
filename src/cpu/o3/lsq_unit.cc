@@ -205,7 +205,7 @@ LSQUnit::completeDataAccess(PacketPtr pkt)
                         inst->pcState().microPC());
                 stats.totalPredictions++;
                 // This is the central place to handle mispredictions
-                handleValueMisprediction(inst);
+                // handleValueMisprediction(inst);
             } else {                        
                 // If this load has been classified as constant (high confidence prediction)
                 // and the prediction was correct, update the CVU
