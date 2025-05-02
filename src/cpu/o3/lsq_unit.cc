@@ -203,15 +203,26 @@ LSQUnit::completeDataAccess(PacketPtr pkt)
                 DPRINTF(ValuePredictor, "[tid:%i] [sn:%llu] (LSQ_UNIT) PC %#llx.%#llx | value prediction is incorrect\n",
                         tid, inst->seqNum, inst->pcState().instAddr(),
                         inst->pcState().microPC());
+                stats.totalPredictions++;
                 // This is the central place to handle mispredictions
                 handleValueMisprediction(inst);
             } else {                        
                 // If this load has been classified as constant (high confidence prediction)
                 // and the prediction was correct, update the CVU
+                if(inst->isVPCorrect()
+                    && cpu->getValuePredictor()->getLCTState(inst->pcState().instAddr(), inst->pcState().microPC()) >= gem5::lvp::ValuePredictor::LCTState::PREDICT)
+                {
+                        stats.correctPredictions++;
+                        stats.totalPredictions++;
+                }
+                
                 if (inst->isVPCorrect() && 
                     cpu->getValuePredictor()->getLCTState(inst->pcState().instAddr(), inst->pcState().microPC()) ==
                     gem5::lvp::ValuePredictor::LCTState::CONSTANT) {
                     
+                    if(cpu->getValuePredictor()->checkCVU(inst->effAddr)) {
+                        stats.cvuHits++;    
+                    }
                     // Add this address to the CVU
                     cpu->getValuePredictor()->updateCVU(
                         inst->effAddr, inst->pcState().instAddr());
@@ -310,8 +321,17 @@ LSQUnit::LSQUnitStats::LSQUnitStats(statistics::Group *parent)
       ADD_STAT(loadToUse, "Distribution of cycle latency between the "
                 "first time a load is issued and its completion"),
 
-      ADD_STAT(valuePredMispredictions, statistics::units::Count::get(),
-      "Number of value prediction mispredictions")   
+      ADD_STAT(mispredictions, statistics::units::Count::get(),
+      "Number of value prediction mispredictions"),
+      
+        ADD_STAT(cvuInvalidations, statistics::units::Count::get(),
+                 "Number of invalidations to the CVU"),
+        ADD_STAT(correctPredictions, statistics::units::Count::get(),
+                 "Number of correct value predictions"),
+        ADD_STAT(totalPredictions, statistics::units::Count::get(),
+                 "Number of value predictions"),
+        ADD_STAT(cvuHits, statistics::units::Count::get(),
+                 "Number of hits in the CVU")
 {
     loadToUse
         .init(0, 299, 10)
@@ -758,6 +778,7 @@ LSQUnit::executeStore(const DynInstPtr &store_inst)
         if((vp->getLCTState(loadPC, store_inst->pcState().microPC()) == gem5::lvp::ValuePredictor::LCTState::CONSTANT) 
             && vp->checkCVU(storeAddr)) {
             // Invalidate the CVU entry
+            stats.cvuInvalidations++;
             vp->invalidateCVU(storeAddr);
             vp->setLCTState(loadPC, store_inst->pcState().microPC(), lvp::ValuePredictor::LCTState::PREDICT);
 
@@ -1730,9 +1751,6 @@ LSQUnit::getStoreHeadSeqNum()
 void
 LSQUnit::handleValueMisprediction(const DynInstPtr &inst)
 {
-    // Update statistics
-    stats.valuePredMispredictions++;
-
     // Since we're using pipeline flush approach, we need to:
     // 1. Signal the CPU to flush the pipeline from this instruction
     // 2. Redirect fetch to the instruction after the mispredicting load
@@ -1742,6 +1760,8 @@ LSQUnit::handleValueMisprediction(const DynInstPtr &inst)
     // Tell the CPU to handle the misprediction - use the existing pipeline flush mechanism
     
     cpu->handleValueMisprediction(inst);
+
+    stats.mispredictions++;
 }
 
 } // namespace o3

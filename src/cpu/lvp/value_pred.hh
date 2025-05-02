@@ -177,10 +177,8 @@ private:
 
     // Statistics
     struct ValuePredictorStats : public statistics::Group {
-        statistics::Scalar predictions;
-        statistics::Scalar predictionsUsed;
-        statistics::Scalar correctPredictions;
-        statistics::Scalar mispredictions;
+        statistics::Scalar cvuInvalidations;
+        statistics::Scalar constants;
 
         ValuePredictorStats(statistics::Group *parent);
     } stats;

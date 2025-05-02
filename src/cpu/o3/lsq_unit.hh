@@ -544,10 +544,16 @@ class LSQUnit
         statistics::Distribution loadToUse;
 
         /** Number of value prediction mispredictions. */
-        statistics::Scalar valuePredMispredictions;
+        statistics::Scalar mispredictions;
 
-        /** Number of CVU hits */
+        statistics::Scalar cvuInvalidations;
+
+        statistics::Scalar correctPredictions;
+
+        statistics::Scalar totalPredictions;
+
         statistics::Scalar cvuHits;
+
     } stats;
 
   public:

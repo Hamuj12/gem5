@@ -459,6 +459,8 @@ class IEW
          *  execute. */
         statistics::Formula branchMispredicts;
 
+        statistics::Scalar valuePredictionForwarded;
+
         struct ExecutedInstStats : public statistics::Group
         {
             ExecutedInstStats(CPU *cpu);

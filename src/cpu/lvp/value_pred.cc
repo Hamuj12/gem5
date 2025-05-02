@@ -11,14 +11,10 @@ namespace lvp {  // New namespace
 
     ValuePredictor::ValuePredictorStats::ValuePredictorStats(statistics::Group *parent)
     : statistics::Group(parent),
-      ADD_STAT(predictions, statistics::units::Count::get(),
-               "Number of value predictions made"),
-      ADD_STAT(predictionsUsed, statistics::units::Count::get(),
-               "Number of value predictions used"),
-      ADD_STAT(correctPredictions, statistics::units::Count::get(),
-               "Number of correct value predictions"),
-      ADD_STAT(mispredictions, statistics::units::Count::get(),
-               "Number of incorrect value predictions")
+      ADD_STAT(cvuInvalidations, statistics::units::Count::get(),
+               "Number of invalidations to the CVU"),
+      ADD_STAT(constants, statistics::units::Count::get(),
+               "Number of constants detected")
 {
 }
 
@@ -37,6 +33,36 @@ ValuePredictor::ValuePredictor(const Params &p)
     DPRINTF(ValuePredictor, "Value Predictor LVPT parameter size: %d\n", p.lvpt_size);
     DPRINTF(ValuePredictor, "Value Predictor LCT size: %d\n", lctSize);
     DPRINTF(ValuePredictor, "Value Predictor LCT parameter size: %d\n", p.lct_size);
+    DPRINTF(ValuePredictor, "Value Predictor CVU size: %d\n", cvuSize);
+    DPRINTF(ValuePredictor, "Value Predictor CVU parameter size: %d\n", p.cvu_size);
+   
+    // Explicitly resize the cvu vector with default-initialized entries
+    lvpt.resize(lvptSize);
+    lct.resize(lctSize);
+    cvu.resize(cvuSize);
+
+    // Initialize LVPT entries
+    for (unsigned i = 0; i < lvptSize; i++) {
+        lvpt[i].VPValid = false;
+        lvpt[i].VPUsed = false;
+        lvpt[i].VPCorrect = false;
+        lvpt[i].predictedValue = 0;
+        lvpt[i].lastUpdate = 0;
+    }
+    
+    // Initialize LCT entries
+    for (unsigned i = 0; i < lctSize; i++) {
+        lct[i].state = LCTState::DONT_PREDICT_1;
+        lct[i].lastUpdate = 0;
+    }
+    
+    // Initialize CVU entries
+    for (unsigned i = 0; i < cvuSize; i++) {
+        cvu[i].valid = false;
+        cvu[i].dataAddr = 0;
+        cvu[i].instrAddr = 0;
+        cvu[i].value = 0;
+    }
 
     if (lvptSize != p.lvpt_size)
         warn("LVPT size rounded down to %d", lvptSize);
@@ -68,7 +94,6 @@ ValuePredictor::reset()
 std::tuple<uint64_t, bool, bool, bool> 
 ValuePredictor::predictValue(Addr pc, Addr upc, InstSeqNum inst_seq_num)
 {
-    stats.predictions++;
 
     unsigned idx = hash(pc, upc);
     const LVPTEntry &lvptEntry = lvpt[idx];
@@ -99,13 +124,6 @@ ValuePredictor::predictValue(Addr pc, Addr upc, InstSeqNum inst_seq_num)
     
     DPRINTF(ValuePredictor, "[sn:%llu] (VP) PC %#llx.%#llx | LCT State: %s\n",
             inst_seq_num, pc, upc, state);
-
-    if (valid) {
-        stats.predictionsUsed++;
-    } else {
-        DPRINTF(ValuePredictor, "[sn:%llu] (VP) PC %#llx.%#llx | No prediction\n",
-                inst_seq_num, pc, upc);
-    }
 
     return std::make_tuple(lvptEntry.predictedValue, valid, lvptEntry.VPCorrect, lvptEntry.VPUsed);
 }
@@ -143,12 +161,10 @@ ValuePredictor::update(Addr pc, Addr upc, InstSeqNum inst_seq_num, uint64_t actu
 
         if (actual_value == lvptEntry.predictedValue) {
             lctEntry.incrementCounter();
-            stats.correctPredictions++;
             DPRINTF(ValuePredictor, "[sn:%llu] (VP) PC %#llx.%#llx | Correct prediction, predicted value 0x%x, actual value 0x%x\n",
                     inst_seq_num, pc, upc, lvptEntry.predictedValue, actual_value);
         } else {
             lctEntry.decrementCounter();
-            stats.mispredictions++;
             DPRINTF(ValuePredictor, "[sn:%llu] (VP) PC %#llx.%#llx | Incorrect prediction, predicted value 0x%x, actual value 0x%x\n",
                     inst_seq_num, pc, upc, lvptEntry.predictedValue, actual_value);
         }
@@ -238,6 +254,8 @@ ValuePredictor::invalidateCVU(Addr addr)
         cvu[idx].valid = false;
         DPRINTF(ValuePredictor, "Invalidating CVU entry for address %#x\n", addr);
     }
+    stats.cvuInvalidations++;
+    stats.constants--;
 }
 
 void 
@@ -247,7 +265,11 @@ ValuePredictor::updateCVU(Addr addr, Addr pc)
     //print out the idx of the cvu
     DPRINTF(ValuePredictor, "(VP) PC %#llx | instruction address %#llx | CVU index %d\n",
             pc, addr, idx);
+    if(!cvu[idx].valid) {
+        stats.constants++;
+    }
     //update the cvu entry
+    DPRINTF(ValuePredictor, "CVU vector capacity: %zu\n", cvu.capacity());
     cvu[idx].valid = true;
     cvu[idx].dataAddr = addr;
     cvu[idx].instrAddr = pc;
@@ -273,10 +295,7 @@ void ValuePredictor::markPredictionUsed(Addr pc, Addr upc, InstSeqNum seqNum) {
     if (entry.VPValid) {
         // Mark that this prediction was actually used
         entry.VPUsed = true;
-        
-        // Could also update additional statistics here
-        stats.predictionsUsed++;
-        
+                
         DPRINTF(ValuePredictor, "[sn:%llu] (VP) PC %#llx.%#llx | Marked prediction as used\n",
                 seqNum, pc, upc);
     }

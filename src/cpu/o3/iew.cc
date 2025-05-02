@@ -191,7 +191,9 @@ IEW::IEWStats::IEWStats(CPU *cpu)
              "Insts written-back per cycle"),
     ADD_STAT(wbFanout, statistics::units::Rate<
                 statistics::units::Count, statistics::units::Count>::get(),
-             "Average fanout of values written-back")
+             "Average fanout of values written-back"),
+    ADD_STAT(valuePredictionForwarded, statistics::units::Count::get(), 
+             "Number of value predictions forwarded")
 {
     instsToCommit
         .init(cpu->numThreads)
@@ -1198,6 +1200,7 @@ IEW::executeInsts()
                     "Value prediction used for load, forwarding to dependent insts\n",
                     inst->threadNumber, inst->seqNum, inst->pcState().instAddr(),
                     inst->pcState().microPC());
+            iewStats.valuePredictionForwarded++;
         }
 
         // Check if the instruction is squashed; if so then skip it
